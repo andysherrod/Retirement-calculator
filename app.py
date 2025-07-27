@@ -234,7 +234,7 @@ def calculate():
 
         df = results['retirement_df']
         final_portfolio = df['Portfolio'].iloc[-1]
-        portfolio_survives = final_portfolio > 0
+        portfolio_survives = bool(final_portfolio > 0)
         depletion_age = None if portfolio_survives else int(df.loc[df['Portfolio'] <= 0, 'Age'].min())
 
         return jsonify({
