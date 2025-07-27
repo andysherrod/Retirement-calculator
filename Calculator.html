@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enhanced Retirement Calculator</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+```
+    body {
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        padding: 20px;
+    }
+    
+    .container {
+        max-width: 1200px;
+        margin: 0 auto;
+        background: white;
+        border-radius: 20px;
+        box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+        overflow: hidden;
+    }
+    
+    .header {
+        background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+        color: white;
+        padding: 30px;
+        text-align: center;
+    }
+    
+    .header h1 {
+        font-size: 2.5em;
+        margin-bottom: 10px;
+    }
+    
+    .header p {
+        font-size: 1.1em;
+        opacity: 0.9;
+    }
+    
+    .main-content {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0;
+    }
+    
+    .form-section {
+        padding: 40px;
+        background: #f8f9fa;
+    }
+    
+    .results-section {
+        padding: 40px;
+        background: white;
+    }
+    
+    .form-group {
+        margin-bottom: 25px;
+    }
+    
+    .form-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+        margin-bottom: 25px;
+    }
+    
+    label {
+        display: block;
+        margin-bottom: 8px;
+        font-weight: 600;
+        color: #2c3e50;
+        font-size: 0.95em;
+    }
+    
+    input, select {
+        width: 100%;
+        padding: 12px 15px;
+        border: 2px solid #e9ecef;
+        border-radius: 10px;
+        font-size: 16px;
+        transition: all 0.3s ease;
+        background: white;
+    }
+    
+    input:focus, select:focus {
+        outline: none;
+        border-color: #667eea;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+    
+    .section-title {
+        font-size: 1.3em;
+        color: #2c3e50;
+        margin-bottom: 20px;
+        padding-bottom: 10px;
+        border-bottom: 2px solid #667eea;
+        font-weight: 600;
+    }
+    
+    .calculate-btn {
+        width: 100%;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        padding: 15px 30px;
+        border-radius: 10px;
+        font-size: 18px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        margin-top: 20px;
+    }
+    
+    .calculate-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+    }
+    
+    .calculate-btn:disabled {
+        opacity: 0.7;
+        cursor: not-allowed;
+        transform: none;
+    }
+    
+    .results {
+        display: none;
+    }
+    
+    .results.show {
+        display: block;
+        animation: fadeIn 0.5s ease;
+    }
+    
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(20px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    
+    .result-card {
+        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+        padding: 20px;
+        border-radius: 15px;
+        margin-bottom: 20px;
+        border-left: 5px solid #667eea;
+    }
+    
+    .result-highlight {
+        font-size: 1.4em;
+        font-weight: 700;
+        color: #2c3e50;
+        margin-bottom: 10px;
+    }
+    
+    .success {
+        color: #27ae60;
+    }
+    
+    .warning {
+        color: #f39c12;
+    }
+    
+    .danger {
+        color: #e74c3c;
+    }
+    
+    .chart-container {
+        margin-top: 30px;
+        text-align: center;
+    }
+    
+    .chart-container img {
+        max-width: 100%;
+        height: auto;
+        border-radius: 10px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+    }
+    
+    .loading {
+        display: none;
+        text-align: center;
+        padding: 40px;
+    }
+    
+    .loading.show {
+        display: block;
+    }
+    
+    .spinner {
+        border: 4px solid #f3f3f3;
+        border-top: 4px solid #667eea;
+        border-radius: 50%;
+        width: 50px;
+        height: 50px;
+        animation: spin 1s linear infinite;
+        margin: 0 auto 20px;
+    }
+    
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+    
+    .error {
+        display: none;
+        background: #ffebee;
+        border: 1px solid #f44336;
+        color: #c62828;
+        padding: 15px;
+        border-radius: 10px;
+        margin-top: 20px;
+    }
+    
+    .error.show {
+        display: block;
+    }
+    
+    .tooltip {
+        position: relative;
+        display: inline-block;
+        cursor: help;
+        color: #667eea;
+        margin-left: 5px;
+    }
+    
+    .tooltip:hover::after {
+        content: attr(data-tooltip);
+        position: absolute;
+        bottom: 125%;
+        left: 50%;
+        transform: translateX(-50%);
+        background: #2c3e50;
+        color: white;
+        padding: 8px 12px;
+        border-radius: 6px;
+        font-size: 12px;
+        white-space: nowrap;
+        z-index: 1000;
+    }
+    
+    @media (max-width: 768px) {
+        .main-content {
+            grid-template-columns: 1fr;
+        }
+        
+        .form-row {
+            grid-template-columns: 1fr;
+        }
+        
+        .header h1 {
+            font-size: 2em;
+        }
+        
+        .form-section, .results-section {
+            padding: 20px;
+        }
+    }
+</style>
+```
+
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Enhanced Retirement Calculator</h1>
+            <p>Comprehensive retirement planning with Monte Carlo simulation and advanced projections</p>
+        </div>
+
+```
+    <div class="main-content">
+        <div class="form-section">
+            <form id="calculatorForm">
+                <div class="section-title">Personal Information</div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="age_current">Current Age <span class="tooltip" data-tooltip="Your current age">ℹ</span></label>
+                        <input type="number" id="age_current" name="age_current" value="45" min="25" max="70" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="age_retire">Retirement Age <span class="tooltip" data-tooltip="Age when you plan to retire">ℹ</span></label>
+                        <input type="number" id="age_retire" name="age_retire" value="65" min="55" max="75" required>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="life_expectancy">Life Expectancy <span class="tooltip" data-tooltip="Expected lifespan for planning purposes">ℹ</span></label>
+                    <input type="number" id="life_expectancy" name="life_expectancy" value="90" min="70" max="100" required>
+                </div>
+                
+                <div class="section-title">Financial Information</div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="portfolio_total">Current Portfolio ($) <span class="tooltip" data-tooltip="Total current retirement savings">ℹ</span></label>
+                        <input type="number" id="portfolio_total" name="portfolio_total" value="500000" min="0" step="1000" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="yearly_investment">Yearly Investment ($) <span class="tooltip" data-tooltip="Annual contribution to retirement accounts">ℹ</span></label>
+                        <input type="number" id="yearly_investment" name="yearly_investment" value="10000" min="0" step="1000" required>
+                    </div>
+                </div>
+                
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="years_contributing">Years Contributing <span class="tooltip" data-tooltip="How many more years you'll contribute">ℹ</span></label>
+                        <input type="number" id="years_contributing" name="years_contributing" value="20" min="0" max="40" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="monthly_benefit_income">Monthly Benefits ($) <span class="tooltip" data-tooltip="Expected Social Security and pension income">ℹ</span></label>
+                        <input type="number" id="monthly_benefit_income" name="monthly_benefit_income" value="2000" min="0" step="100" required>
+                    </div>
+                </div>
+                
+                <div class="section-title">Budget and Expenses</div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="current_monthly_budget">Current Monthly Budget ($) <span class="tooltip" data-tooltip="Your current monthly living expenses">ℹ</span></label>
+                        <input type="number" id="current_monthly_budget" name="current_monthly_budget" value="5000" min="1000" step="100" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="retirement_budget_ratio">Retirement Budget Ratio (%) <span class="tooltip" data-tooltip="Percentage of current budget needed in retirement">ℹ</span></label>
+                        <input type="number" id="retirement_budget_ratio" name="retirement_budget_ratio" value="80" min="50" max="120" step="5" required>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="healthcare_costs">Monthly Healthcare Costs ($) <span class="tooltip" data-tooltip="Expected monthly healthcare expenses in retirement">ℹ</span></label>
+                    <input type="number" id="healthcare_costs" name="healthcare_costs" value="500" min="200" max="2000" step="50" required>
+                </div>
+                
+                <div class="section-title">Investment Parameters</div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="expected_return">Expected Annual Return (%) <span class="tooltip" data-tooltip="Expected annual portfolio return">ℹ</span></label>
+                        <input type="number" id="expected_return" name="expected_return" value="5.5" min="2" max="10" step="0.1" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="inflation_rate">Inflation Rate (%) <span class="tooltip" data-tooltip="Expected annual inflation rate">ℹ</span></label>
+                        <input type="number" id="inflation_rate" name="inflation_rate" value="2.5" min="1" max="5" step="0.1" required>
+                    </div>
+                </div>
+                
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="account_type">Account Type <span class="tooltip" data-tooltip="Type of retirement account affects tax treatment">ℹ</span></label>
+                        <select id="account_type" name="account_type" required>
+                            <option value="Roth IRA/401k">Roth IRA/401k</option>
+                            <option value="Traditional IRA/401k">Traditional IRA/401k</option>
+                            <option value="Taxable Account">Taxable Account</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="tax_rate">Effective Tax Rate (%) <span class="tooltip" data-tooltip="Expected tax rate on withdrawals">ℹ</span></label>
+                        <input type="number" id="tax_rate" name="tax_rate" value="15" min="0" max="40" step="1" required>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="retirement_phases">Spending Pattern <span class="tooltip" data-tooltip="How your spending may change throughout retirement">ℹ</span></label>
+                    <select id="retirement_phases" name="retirement_phases" required>
+                        <option value="Constant">Constant Spending</option>
+                        <option value="Early Active">Early Active (Higher spending first 10 years)</option>
+                        <option value="Late Increase">Late Increase (Higher spending in later years)</option>
+                    </select>
+                </div>
+                
+                <button type="submit" class="calculate-btn">Calculate Retirement Plan</button>
+            </form>
+            
+            <div class="error" id="errorMessage"></div>
+        </div>
+        
+        <div class="results-section">
+            <div class="loading" id="loading">
+                <div class="spinner"></div>
+                <p>Running Monte Carlo simulation and generating projections...</p>
+            </div>
+            
+            <div class="results" id="results">
+                <div class="section-title">Retirement Projection Results</div>
+                
+                <div class="result-card">
+                    <div class="result-highlight" id="portfolioResult"></div>
+                    <div id="portfolioDetails"></div>
+                </div>
+                
+                <div class="result-card">
+                    <div class="result-highlight">Monte Carlo Success Probability</div>
+                    <div id="successProbability" class="result-highlight"></div>
+                    <p>Based on 1,000 simulations with variable market returns</p>
+                </div>
+                
+                <div class="result-card">
+                    <div class="result-highlight">Key Projections</div>
+                    <div id="keyProjections"></div>
+                </div>
+                
+                <div class="chart-container">
+                    <h3>Detailed Analysis Charts</h3>
+                    <img id="chartImage" src="" alt="Retirement Analysis Charts" style="display: none;">
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    document.getElementById('calculatorForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        // Show loading, hide results and errors
+        document.getElementById('loading').classList.add('show');
+        document.getElementById('results').classList.remove('show');
+        document.getElementById('errorMessage').classList.remove('show');
+        
+        // Collect form data
+        const formData = new FormData(this);
+        const data = {};
+        for (let [key, value] of formData.entries()) {
+            data[key] = value;
+        }
+        
+        try {
+            const response = await fetch('/calculate', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(data)
+            });
+            
+            const result = await response.json();
+            
+            // Hide loading
+            document.getElementById('loading').classList.remove('show');
+            
+            if (result.success) {
+                displayResults(result.results);
+            } else {
+                showError(result.error);
+            }
+        } catch (error) {
+            document.getElementById('loading').classList.remove('show');
+            showError('Network error: ' + error.message);
+        }
+    });
+    
+    function displayResults(results) {
+        // Portfolio survival result
+        const portfolioResult = document.getElementById('portfolioResult');
+        const portfolioDetails = document.getElementById('portfolioDetails');
+        
+        if (results.portfolio_survives) {
+            portfolioResult.className = 'result-highlight success';
+            portfolioResult.textContent = '✓ Portfolio Survives to Life Expectancy';
+            portfolioDetails.innerHTML = `
+                <p><strong>Final Portfolio Value:</strong> ${results.final_portfolio}</p>
+                <p>Your retirement savings are projected to last throughout your expected lifetime.</p>
+            `;
+        } else {
+            portfolioResult.className = 'result-highlight danger';
+            portfolioResult.textContent = '⚠ Portfolio Depleted';
+            portfolioDetails.innerHTML = `
+                <p><strong>Portfolio depleted at age:</strong> ${results.depletion_age}</p>
+                <p>Consider increasing savings, reducing expenses, or adjusting retirement age.</p>
+            `;
+        }
+        
+        // Success probability
+        const successProb = parseFloat(results.success_probability);
+        const successElement = document.getElementById('successProbability');
+        
+        if (successProb >= 80) {
+            successElement.className = 'result-highlight success';
+        } else if (successProb >= 60) {
+            successElement.className = 'result-highlight warning';
+        } else {
+            successElement.className = 'result-highlight danger';
+        }
+        successElement.textContent = results.success_probability;
+        
+        // Key projections
+        document.getElementById('keyProjections').innerHTML = `
+            <p><strong>Portfolio at Retirement:</strong> ${results.future_portfolio}</p>
+            <p><strong>Years Until Retirement:</strong> ${results.years_until_retirement}</p>
+            <p><strong>Years in Retirement:</strong> ${results.retirement_years}</p>
+            <p><strong>Initial Monthly Budget:</strong> ${results.initial_monthly_budget}</p>
+        `;
+        
+        // Display chart
+        if (results.chart) {
+            const chartImg = document.getElementById('chartImage');
+            chartImg.src = 'data:image/png;base64,' + results.chart;
+            chartImg.style.display = 'block';
+        }
+        
+        // Show results
+        document.getElementById('results').classList.add('show');
+    }
+    
+    function showError(message) {
+        const errorElement = document.getElementById('errorMessage');
+        errorElement.textContent = 'Error: ' + message;
+        errorElement.classList.add('show');
+    }
+    
+    // Form validation and dependencies
+    function updateFormValidation() {
+        const currentAge = parseInt(document.getElementById('age_current').value);
+        const retireAge = parseInt(document.getElementById('age_retire').value);
+        const lifeExpectancy = parseInt(document.getElementById('life_expectancy').value);
+        
+        // Ensure retirement age is after current age
+        if (retireAge <= currentAge) {
+            document.getElementById('age_retire').value = currentAge + 1;
+        }
+        
+        // Ensure life expectancy is after retirement age
+        if (lifeExpectancy <= retireAge) {
+            document.getElementById('life_expectancy').value = retireAge + 1;
+        }
+    }
+    
+    // Add event listeners for form validation
+    document.getElementById('age_current').addEventListener('change', updateFormValidation);
+    document.getElementById('age_retire').addEventListener('change', updateFormValidation);
+    document.getElementById('life_expectancy').addEventListener('change', updateFormValidation);
+    
+    // Tax rate visibility based on account type
+    document.getElementById('account_type').addEventListener('change', function() {
+        const taxRateGroup = document.getElementById('tax_rate').parentElement;
+        if (this.value === 'Roth IRA/401k') {
+            taxRateGroup.style.opacity = '0.5';
+            document.getElementById('tax_rate').value = '0';
+        } else {
+            taxRateGroup.style.opacity = '1';
+            if (document.getElementById('tax_rate').value === '0') {
+                document.getElementById('tax_rate').value = '15';
+            }
+        }
+    });
+    
+    // Initialize form
+    updateFormValidation();
+</script>
+```
+
+</body>
+</html>
