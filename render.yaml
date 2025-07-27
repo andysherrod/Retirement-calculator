@@ -2,7 +2,7 @@ services:
   - type: web
     name: retirement-calculator
     env: python
-    pythonVersion: 3.12.3   # ✅ force Python 3.12
+    pythonVersion: 3.12.3 
     buildCommand: ""
     startCommand: gunicorn app:app
     plan: free
