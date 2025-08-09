@@ -2,7 +2,7 @@ from flask import Flask, render_template, request, jsonify
 import pandas as pd
 import numpy as np
 import matplotlib
-matplotlib.use(‘Agg’)  # Use non-interactive backend
+matplotlib.use('Agg')  # Use non-interactive backend
 import matplotlib.pyplot as plt
 import seaborn as sns
 import base64
