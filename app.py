@@ -498,7 +498,6 @@ data = request.get_json()
 
 except Exception as e:
     return jsonify({'success': False, 'error': str(e)})
-```
 
 if **name** == ‘**main**’:
 app.run(debug=True)
