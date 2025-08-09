@@ -15,11 +15,11 @@ app = Flask(**name**)
 
 @dataclass
 class InvestmentStream:
-“”“Represents a single investment stream with tax implications”””
+"""Represents a single investment stream with tax implications"""
 name: str
 annual_contribution: float
 tax_treatment: str  # ‘traditional’, ‘roth’, ‘taxable’
-contribution_limit: float = float(‘inf’)
+contribution_limit: float = float('inf')
 employer_match_rate: float = 0.0
 employer_match_limit: float = 0.0
 
