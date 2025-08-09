@@ -84,6 +84,7 @@ Web Link: https://retirement-calculator-ealv.onrender.com/
 ### Option 2: Production Deployment
 
 - Deploy to platforms like Heroku, PythonAnywhere, or DigitalOcean
+- Deployed using Render
 - Use a production WSGI server like Gunicorn
 - Add environment variables for configuration
 
