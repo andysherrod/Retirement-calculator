@@ -394,10 +394,6 @@
                             <label for="portfolio_total">Current Portfolio ($) <span class="tooltip" data-tooltip="Total current retirement savings">ℹ</span></label>
                             <input type="number" id="portfolio_total" name="portfolio_total" value="500000" min="0" step="1000" required>
                         </div>
-                        <div class="form-group">
-                            <label for="yearly_investment">Yearly Investment ($) <span class="tooltip" data-tooltip="Annual contribution if not using investment streams">ℹ</span></label>
-                            <input type="number" id="yearly_investment" name="yearly_investment" value="25000" min="0" step="1000" required>
-                        </div>
                     </div>
                     
                     <div class="form-row">
@@ -453,7 +449,7 @@
                         <div class="section-title">Multiple Investment Streams</div>
                         <p style="margin-bottom: 20px; color: #666; font-size: 0.9em;">
                             Add multiple investment accounts with different tax treatments and limits. 
-                            If no streams are added, the yearly investment above will be used.
+                            Define your annual contributions using investment streams below; if none are provided, no recurring contributions are assumed.
                         </p>
                         <div id="investment-streams-container">
                             </div>
@@ -870,15 +866,7 @@
             setupSliders();
             updateFormValidation();
             
-            // Add a note about the example
-            const yearlyInvestmentInput = document.getElementById('yearly_investment');
-            yearlyInvestmentInput.addEventListener('focus', function() {
-                if (document.querySelectorAll('.investment-stream').length === 0) {
-                    if (confirm('Would you like to set up individual investment streams (Roth IRA, 401k, etc.) instead of using a single yearly investment amount? This allows for better tax optimization.')) {
-                        addSampleStreams();
-                    }
-                }
-            });
+
         });
     </script>
 </body>

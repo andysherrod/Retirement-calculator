@@ -1,4 +1,6 @@
 from flask import Flask, render_template, request, jsonify
+import os
+import logging
 import pandas as pd
 import numpy as np
 import matplotlib
@@ -9,7 +11,10 @@ import base64
 import io
 import json
 from dataclasses import dataclass
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
@@ -30,7 +35,14 @@ class EnhancedRetirementCalculator:
                  retirement_phases, healthcare_costs,
                  # New parameters for asset allocation
                  stock_allocation=0.7, bond_allocation=0.3, stock_volatility=0.16,
-                 bond_volatility=0.05, correlation=-0.1, investment_streams=None):
+                 bond_volatility=0.05, correlation=-0.1, investment_streams=None,
+                 random_seed: Optional[int] = None, num_simulations: int = 10000):
+
+        # Basic validations
+        if age_retire <= age_current:
+            raise ValueError("age_retire must be greater than age_current")
+        if stock_allocation < 0 or bond_allocation < 0 or abs(stock_allocation + bond_allocation - 1.0) > 1e-6:
+            raise ValueError("stock_allocation and bond_allocation must be non-negative and sum to 1.0")
 
         self.age_current = age_current
         self.age_retire = age_retire
@@ -55,20 +67,22 @@ class EnhancedRetirementCalculator:
         self.bond_volatility = bond_volatility
         self.correlation = correlation
 
+        # Randomness and simulation config
+        self.rng = np.random.default_rng(random_seed)
+        self.num_simulations = int(num_simulations)
+
         # Multiple investment streams
         self.investment_streams = investment_streams or []
 
     def generate_correlated_returns(self, num_simulations: int, num_years: int) -> Tuple[np.ndarray, np.ndarray]:
         """Generate correlated stock and bond returns using NumPy vectorization"""
-        # Create correlation matrix
-        corr_matrix = np.array([[1.0, self.correlation],
-                               [self.correlation, 1.0]])
+        cov = [[self.stock_volatility**2, self.correlation * self.stock_volatility * self.bond_volatility],
+               [self.correlation * self.stock_volatility * self.bond_volatility, self.bond_volatility**2]]
 
-        # Generate uncorrelated random returns
-        random_returns = np.random.multivariate_normal(
+        # Draw samples using the instance RNG
+        random_returns = self.rng.multivariate_normal(
             [self.expected_return, 0.04],  # Stock and bond expected returns
-            [[self.stock_volatility**2, self.correlation * self.stock_volatility * self.bond_volatility],
-             [self.correlation * self.stock_volatility * self.bond_volatility, self.bond_volatility**2]],
+            cov,
             size=(num_simulations, num_years)
         )
 
@@ -173,6 +187,8 @@ class EnhancedRetirementCalculator:
             'Early Active': [1.2] * min(10, retirement_years) + [0.9] * max(0, retirement_years - 10),
             'Late Increase': [0.9] * min(20, retirement_years) + [1.3] * max(0, retirement_years - 20)
         }
+        if self.retirement_phases not in phase_adjustments:
+            raise ValueError(f"Invalid retirement_phases: {self.retirement_phases}. Valid options: {list(phase_adjustments.keys())}")
         spending_adjustments = phase_adjustments[self.retirement_phases]
 
         for year in range(1, retirement_years + 1):
@@ -223,7 +239,8 @@ class EnhancedRetirementCalculator:
     def monte_carlo_simulation_vectorized(self, future_portfolio, retirement_years, years_until_retirement,
                                         initial_retirement_budget, spending_adjustments):
         """Vectorized Monte Carlo simulation using NumPy for massive speed improvements"""
-        num_simulations = 10000  # Increased due to better performance
+        # Use configured number of simulations
+        num_simulations = int(self.num_simulations)
 
         # Generate all random returns at once using vectorization
         stock_returns, bond_returns = self.generate_correlated_returns(num_simulations, retirement_years)
@@ -270,10 +287,8 @@ class EnhancedRetirementCalculator:
         tax_savings = 0
 
         # Sort streams by tax efficiency (Roth limits first, then traditional, then taxable)
-        sorted_streams = sorted(self.investment_streams,
-                               key=lambda x: (x.tax_treatment == 'traditional',
-                                             x.tax_treatment == 'roth',
-                                             x.tax_treatment == 'taxable'))
+        priority = {'roth': 0, 'traditional': 1, 'taxable': 2}
+        sorted_streams = sorted(self.investment_streams, key=lambda s: priority.get(s.tax_treatment, 99))
 
         for stream in sorted_streams:
             available_contribution = min(stream.annual_contribution, stream.contribution_limit)
@@ -367,9 +382,18 @@ class EnhancedRetirementCalculator:
         ax4.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'${x/1000:.0f}K'))
 
         # Chart 5: Probability Distribution of Ending Values
-        ax5.hist(ending_values[ending_values > 0], bins=50, alpha=0.7, color='green', density=True, label='Successful Scenarios')
-        ax5.hist(ending_values[ending_values == 0], bins=1, alpha=0.7, color='red', density=True, label='Failed Scenarios')
-        ax5.axvline(np.median(ending_values[ending_values > 0]), color='orange', linestyle='--', linewidth=2, label='Median (Successful)')
+        successful = ending_values[ending_values > 0]
+        failed_count = int(np.sum(ending_values == 0))
+
+        if successful.size == 0:
+            ax5.text(0.5, 0.5, 'No successful scenarios', ha='center', va='center', transform=ax5.transAxes, fontsize=12)
+        else:
+            ax5.hist(successful, bins=50, alpha=0.7, color='green', density=True, label='Successful Scenarios')
+            ax5.axvline(np.median(successful), color='orange', linestyle='--', linewidth=2, label='Median (Successful)')
+
+        if failed_count > 0:
+            ax5.text(0.95, 0.95, f'Failed scenarios: {failed_count}/{len(ending_values)}', ha='right', va='top', transform=ax5.transAxes, fontsize=10, color='red')
+
         ax5.set_title('Distribution of Portfolio Values at End of Retirement', fontsize=14, fontweight='bold')
         ax5.set_xlabel('Final Portfolio Value ($)')
         ax5.set_ylabel('Probability Density')
@@ -411,7 +435,21 @@ def index():
 @app.route('/calculate', methods=['POST'])
 def calculate():
     try:
-        data = request.get_json()
+        # Parse JSON safely (don't raise on bad/missing Content-Type)
+        data = request.get_json(silent=True)
+
+        # Basic request validation
+        if not isinstance(data, dict):
+            raise ValueError('Invalid or missing JSON payload')
+
+        # Required fields (yearly_investment is optional now)
+        required_fields = ['age_current', 'age_retire', 'life_expectancy', 'monthly_benefit_income',
+                           'portfolio_total', 'years_contributing', 'current_monthly_budget',
+                           'inflation_rate', 'expected_return', 'account_type', 'tax_rate',
+                           'retirement_budget_ratio', 'retirement_phases', 'healthcare_costs']
+        missing = [f for f in required_fields if f not in data or str(data.get(f)).strip() == '']
+        if missing:
+            raise ValueError(f"Missing required field(s): {', '.join(missing)}")
 
         # Process investment streams if provided
         investment_streams = []
@@ -433,7 +471,7 @@ def calculate():
             life_expectancy=int(data['life_expectancy']),
             monthly_benefit_income=float(data['monthly_benefit_income']),
             portfolio_total=float(data['portfolio_total']),
-            yearly_investment=float(data['yearly_investment']),
+            yearly_investment=float(data.get('yearly_investment', 0)),
             years_contributing=int(data['years_contributing']),
             current_monthly_budget=float(data['current_monthly_budget']),
             inflation_rate=float(data['inflation_rate']) / 100,
@@ -449,6 +487,8 @@ def calculate():
             stock_volatility=float(data.get('stock_volatility', 16)) / 100,
             bond_volatility=float(data.get('bond_volatility', 5)) / 100,
             correlation=float(data.get('correlation', -10)) / 100,
+            random_seed=int(data.get('random_seed')) if data.get('random_seed') is not None else None,
+            num_simulations=int(data.get('num_simulations', 10000)),
             investment_streams=investment_streams
         )
 
@@ -494,8 +534,13 @@ def calculate():
             }
         })
 
+    except ValueError as e:
+        logger.error("Validation error during calculation: %s", e)
+        return jsonify({'success': False, 'error': str(e)}), 400
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
+        logger.exception("Unhandled exception during calculation")
+        return jsonify({'success': False, 'error': 'Internal server error'}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    debug_flag = os.getenv('FLASK_DEBUG', '0') == '1'
+    app.run(debug=debug_flag)
