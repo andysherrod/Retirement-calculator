@@ -648,6 +648,12 @@
                         <button id="tabDetails" class="tab" role="tab">Details</button>
                         <div style="flex:1"></div>
                         <button id="downloadAllCsv" class="small-btn">Download All CSVs</button>
+                        <!-- Debug toggle for iPad users -->
+                        <button id="toggleDebug" class="small-btn" style="margin-left:8px;">Toggle Raw JSON</button>
+                    </div>
+                    <!-- Hidden debug output for raw JSON (visible when toggled) -->
+                    <div style="margin-top:12px;">
+                        <pre id="debugJson" style="display:none; max-height:300px; overflow:auto; background:#f6f8fb; padding:12px; border-radius:8px; border:1px solid #e6e9ee; font-size:12px; white-space:pre-wrap;"></pre>
                     </div>
 
                     <div id="tabSummaryContent">
@@ -891,6 +897,27 @@
                 showError('Network error: ' + error.message);
             }
         });
+
+        // Mark that the form submit handler was successfully attached (useful for debugging on devices without DevTools)
+        try {
+            const form = document.getElementById('calculatorForm');
+            if (form) {
+                form.dataset.wired = '1';
+                const debugPre = document.getElementById('debugJson');
+                if (debugPre) {
+                    try {
+                        const current = JSON.parse(debugPre.textContent || '{}');
+                        current.form_wired = true;
+                        debugPre.textContent = JSON.stringify(current, null, 2);
+                    } catch (err) {
+                        debugPre.textContent = JSON.stringify({form_wired: true}, null, 2);
+                    }
+                }
+            }
+            console.log('calculatorForm submit handler attached');
+        } catch (err) {
+            console.error('Error marking form wired', err);
+        }
         
         function displayResults(results) {
             // Portfolio survival result
@@ -969,8 +996,46 @@
 
             // Save results for details tab rendering
             window._calculatorResults = results;
+            // Populate raw JSON debug area (useful on devices without DevTools)
+            try {
+                const debugPre = document.getElementById('debugJson');
+                if (debugPre) {
+                    // Show a compact subset by default to keep it readable
+                    debugPre.textContent = JSON.stringify({
+                        percentiles: results.percentiles || results.percentiles || null,
+                        success_probability: results.success_probability || null,
+                        details_preview: {
+                            pre_retirement: (results.details && results.details.pre_retirement) ? results.details.pre_retirement.slice(0,3) : [],
+                            retirement: (results.details && results.details.retirement) ? results.details.retirement.slice(0,3) : []
+                        }
+                    }, null, 2);
+                }
+            } catch (err) {
+                console.error('Failed to populate debugJson', err);
+            }
+
             renderDetails(results.details || {pre_retirement: [], retirement: []});
             switchTab('summary');
+
+            // Wire up debug toggle button (idempotent)
+            try {
+                const toggleBtn = document.getElementById('toggleDebug');
+                const debugPre = document.getElementById('debugJson');
+                if (toggleBtn && debugPre && !toggleBtn.dataset.wired) {
+                    toggleBtn.addEventListener('click', function() {
+                        if (debugPre.style.display === 'none' || debugPre.style.display === '') {
+                            debugPre.style.display = 'block';
+                            this.textContent = 'Hide Raw JSON';
+                        } else {
+                            debugPre.style.display = 'none';
+                            this.textContent = 'Toggle Raw JSON';
+                        }
+                    });
+                    toggleBtn.dataset.wired = '1';
+                }
+            } catch (err) {
+                console.error('Failed to wire toggleDebug', err);
+            }
         }
         
         // --- Details rendering helpers ------------------------------------------------
@@ -1034,84 +1099,93 @@
                     if (retContainer && retContainer.parentElement) retContainer.parentElement.insertBefore(retCountEl, retContainer.nextSibling);
                 }
                 retCountEl.textContent = 'Showing ' + Math.min(retData.length, 10) + ' of ' + retData.length + ' rows';
+
+                // Add small JSON previews (first 3 rows) for iPad users without DevTools
+                const prePreviewId = 'prePreview';
+                let prePreview = document.getElementById(prePreviewId);
+                if (!prePreview) {
+                    prePreview = document.createElement('pre');
+                    prePreview.id = prePreviewId;
+                    prePreview.style.background = '#f8f9ff';
+                    prePreview.style.padding = '8px';
+                    prePreview.style.borderRadius = '6px';
+                    prePreview.style.marginTop = '6px';
+                    prePreview.style.fontSize = '12px';
+                    const preContainer = document.getElementById('preTableContainer');
+                    if (preContainer) preContainer.insertAdjacentElement('afterend', prePreview);
+                }
+                prePreview.textContent = JSON.stringify(preData.slice(0,3), null, 2);
+
+                const retPreviewId = 'retPreview';
+                let retPreview = document.getElementById(retPreviewId);
+                if (!retPreview) {
+                    retPreview = document.createElement('pre');
+                    retPreview.id = retPreviewId;
+                    retPreview.style.background = '#f8f9ff';
+                    retPreview.style.padding = '8px';
+                    retPreview.style.borderRadius = '6px';
+                    retPreview.style.marginTop = '6px';
+                    retPreview.style.fontSize = '12px';
+                    const retContainer = document.getElementById('retTableContainer');
+                    if (retContainer) retContainer.insertAdjacentElement('afterend', retPreview);
+                }
+                retPreview.textContent = JSON.stringify(retData.slice(0,3), null, 2);
+
             } catch (err) {
                 console.error('Error updating counts', err);
             }
 
-            // Wire buttons
-            document.getElementById('preShowToggle').addEventListener('click', function() {
-                toggleShowAll('preTableContainer', preData, ['Year', 'Age', 'Beginning_Portfolio', 'Yearly_Contribution', 'Tax_Savings', 'Ending_Portfolio'], this);
-            });
-            document.getElementById('retShowToggle').addEventListener('click', function() {
-                toggleShowAll('retTableContainer', retData, ['Year', 'Age', 'Beginning_Portfolio', 'Withdrawal', 'Investment_Return', 'Ending_Portfolio', 'Annual_Budget', 'Healthcare_Costs', 'Withdrawal_Rate'], this);
-            });
-            document.getElementById('preCsv').addEventListener('click', function() { downloadCSV('pre_retirement.csv', preData); });
-            document.getElementById('retCsv').addEventListener('click', function() { downloadCSV('retirement.csv', retData); });
-            document.getElementById('downloadAllCsv').addEventListener('click', function() { downloadCSV('pre_retirement.csv', preData); downloadCSV('retirement.csv', retData); });
-        }
-
-        function renderTable(containerId, data, columns, limit) {
+            // Wire buttons (use .onclick to avoid duplicate listeners and ensure graceful failure on missing elements)
             try {
-                console.log('renderTable', containerId, 'rows:', Array.isArray(data) ? data.length : 0);
-                const container = document.getElementById(containerId);
-                if (!container) {
-                    console.error('renderTable: container not found', containerId);
-                    return;
+                const preShowBtn = document.getElementById('preShowToggle');
+                if (preShowBtn) {
+                    preShowBtn.onclick = function() { toggleShowAll('preTableContainer', preData, ['Year', 'Age', 'Beginning_Portfolio', 'Yearly_Contribution', 'Tax_Savings', 'Ending_Portfolio'], this); };
+                } else console.warn('preShowToggle not found');
+
+                const retShowBtn = document.getElementById('retShowToggle');
+                if (retShowBtn) {
+                    retShowBtn.onclick = function() { toggleShowAll('retTableContainer', retData, ['Year', 'Age', 'Beginning_Portfolio', 'Withdrawal', 'Investment_Return', 'Ending_Portfolio', 'Annual_Budget', 'Healthcare_Costs', 'Withdrawal_Rate'], this); };
+                } else console.warn('retShowToggle not found');
+
+                const preCsvBtn = document.getElementById('preCsv');
+                if (preCsvBtn) {
+                    preCsvBtn.onclick = function() { downloadCSV('pre_retirement.csv', preData); };
+                } else console.warn('preCsv not found');
+
+                const retCsvBtn = document.getElementById('retCsv');
+                if (retCsvBtn) {
+                    retCsvBtn.onclick = function() { downloadCSV('retirement.csv', retData); };
+                } else console.warn('retCsv not found');
+
+                const downloadAllBtn = document.getElementById('downloadAllCsv');
+                if (downloadAllBtn) {
+                    downloadAllBtn.onclick = function() { downloadCSV('pre_retirement.csv', preData); downloadCSV('retirement.csv', retData); };
+                } else console.warn('downloadAllCsv not found');
+
+                const debugPre = document.getElementById('debugJson');
+                if (debugPre) {
+                    try {
+                        const current = JSON.parse(debugPre.textContent || '{}');
+                        current.button_wiring = {
+                            preShowToggle: !!preShowBtn,
+                            retShowToggle: !!retShowBtn,
+                            preCsv: !!preCsvBtn,
+                            retCsv: !!retCsvBtn,
+                            downloadAllCsv: !!downloadAllBtn
+                        };
+                        debugPre.textContent = JSON.stringify(current, null, 2);
+                    } catch (err) {
+                        debugPre.textContent = JSON.stringify({button_wiring: {
+                            preShowToggle: !!preShowBtn,
+                            retShowToggle: !!retShowBtn,
+                            preCsv: !!preCsvBtn,
+                            retCsv: !!retCsvBtn,
+                            downloadAllCsv: !!downloadAllBtn
+                        }}, null, 2);
+                    }
                 }
-                container.style.display = '';
-
-                const rows = (typeof limit === 'number') ? data.slice(0, limit) : data;
-                if (!rows || rows.length === 0) {
-                    container.innerHTML = '<div style="padding:20px;color:#666;text-align:center;">No data available</div>';
-                    return;
-                }
-
-                const table = document.createElement('table');
-                table.className = 'detail-table';
-                table.style.width = '100%';
-
-                const thead = document.createElement('thead');
-                const trHead = document.createElement('tr');
-                columns.forEach(c => {
-                    const th = document.createElement('th');
-                    th.textContent = c.replace(/_/g, ' ');
-                    trHead.appendChild(th);
-                });
-                thead.appendChild(trHead);
-                table.appendChild(thead);
-
-                const tbody = document.createElement('tbody');
-                rows.forEach(r => {
-                    const tr = document.createElement('tr');
-                    columns.forEach(c => {
-                        const td = document.createElement('td');
-                        let val = (r[c] !== undefined && r[c] !== null) ? r[c] : '';
-                        if (typeof val === 'number') {
-                            // format currency for amounts and % for rates
-                            if (c.toLowerCase().includes('rate')) {
-                                td.textContent = (val * 100).toFixed(1) + '%';
-                            } else if (c.toLowerCase().includes('percent') || c.toLowerCase().includes('allocation')) {
-                                td.textContent = val;
-                            } else {
-                                td.textContent = '$' + Number(val).toLocaleString(undefined, {maximumFractionDigits:0});
-                            }
-                        } else {
-                            td.textContent = val;
-                        }
-                        tr.appendChild(td);
-                    });
-                    tbody.appendChild(tr);
-                });
-
-                // Clear container and append
-                container.innerHTML = '';
-                container.appendChild(table);
             } catch (err) {
-                console.error('renderTable error', err);
-                const container = document.getElementById(containerId);
-                if (container) {
-                    container.innerHTML = '<div class="error show">Table render error: ' + (err && err.message ? err.message : err) + '</div>';
-                }
+                console.error('Error wiring buttons in renderDetails', err);
             }
         }
 
