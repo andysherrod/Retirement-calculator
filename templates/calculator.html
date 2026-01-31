@@ -317,6 +317,8 @@
             width: 100%;
             border-collapse: collapse;
             font-size: 13px;
+            table-layout: fixed;
+            word-break: break-word;
         }
         .detail-table thead th {
             position: sticky;
@@ -326,10 +328,22 @@
             padding: 8px 10px;
             text-align: left;
             font-weight: 700;
+            color: #2c3e50;
         }
         .detail-table tbody td {
-            padding: 8px 10px;
+            padding: 12px 10px;
             border-bottom: 1px solid #f1f1f1;
+            color: #2c3e50; /* Ensure body text is visible */
+            background: transparent;
+        }
+        .detail-table tbody tr:nth-child(odd) td {
+            background: #fbfdff; /* subtle zebra striping */
+        }
+        .detail-table tbody tr td:first-child {
+            width: 8%;
+        }
+        .detail-table tbody tr td:nth-child(2) {
+            width: 12%;
         }
         .table-toolbar {
             display:flex; gap:10px; align-items:center; justify-content:flex-end; margin-bottom:10px;
@@ -957,6 +971,7 @@
             window._calculatorResults = results;
             renderDetails(results.details || {pre_retirement: [], retirement: []});
             switchTab('summary');
+        }
         
         // --- Details rendering helpers ------------------------------------------------
         function switchTab(name) {
@@ -992,6 +1007,37 @@
             renderTable('preTableContainer', preData, ['Year', 'Age', 'Beginning_Portfolio', 'Yearly_Contribution', 'Tax_Savings', 'Ending_Portfolio'], 10);
             renderTable('retTableContainer', retData, ['Year', 'Age', 'Beginning_Portfolio', 'Withdrawal', 'Investment_Return', 'Ending_Portfolio', 'Annual_Budget', 'Healthcare_Costs', 'Withdrawal_Rate'], 10);
 
+            // Add visible counts so it's obvious whether rows were rendered
+            try {
+                const preCountId = 'preCount';
+                let preCountEl = document.getElementById(preCountId);
+                if (!preCountEl) {
+                    preCountEl = document.createElement('div');
+                    preCountEl.id = preCountId;
+                    preCountEl.style.fontSize = '12px';
+                    preCountEl.style.color = '#666';
+                    preCountEl.style.marginTop = '8px';
+                    const preContainer = document.getElementById('preTableContainer');
+                    if (preContainer && preContainer.parentElement) preContainer.parentElement.insertBefore(preCountEl, preContainer.nextSibling);
+                }
+                preCountEl.textContent = 'Showing ' + Math.min(preData.length, 10) + ' of ' + preData.length + ' rows';
+
+                const retCountId = 'retCount';
+                let retCountEl = document.getElementById(retCountId);
+                if (!retCountEl) {
+                    retCountEl = document.createElement('div');
+                    retCountEl.id = retCountId;
+                    retCountEl.style.fontSize = '12px';
+                    retCountEl.style.color = '#666';
+                    retCountEl.style.marginTop = '8px';
+                    const retContainer = document.getElementById('retTableContainer');
+                    if (retContainer && retContainer.parentElement) retContainer.parentElement.insertBefore(retCountEl, retContainer.nextSibling);
+                }
+                retCountEl.textContent = 'Showing ' + Math.min(retData.length, 10) + ' of ' + retData.length + ' rows';
+            } catch (err) {
+                console.error('Error updating counts', err);
+            }
+
             // Wire buttons
             document.getElementById('preShowToggle').addEventListener('click', function() {
                 toggleShowAll('preTableContainer', preData, ['Year', 'Age', 'Beginning_Portfolio', 'Yearly_Contribution', 'Tax_Savings', 'Ending_Portfolio'], this);
@@ -1005,47 +1051,68 @@
         }
 
         function renderTable(containerId, data, columns, limit) {
-            const container = document.getElementById(containerId);
-            const rows = (typeof limit === 'number') ? data.slice(0, limit) : data;
-            const table = document.createElement('table');
-            table.className = 'detail-table';
+            try {
+                console.log('renderTable', containerId, 'rows:', Array.isArray(data) ? data.length : 0);
+                const container = document.getElementById(containerId);
+                if (!container) {
+                    console.error('renderTable: container not found', containerId);
+                    return;
+                }
+                container.style.display = '';
 
-            const thead = document.createElement('thead');
-            const trHead = document.createElement('tr');
-            columns.forEach(c => {
-                const th = document.createElement('th');
-                th.textContent = c.replace(/_/g, ' ');
-                trHead.appendChild(th);
-            });
-            thead.appendChild(trHead);
-            table.appendChild(thead);
+                const rows = (typeof limit === 'number') ? data.slice(0, limit) : data;
+                if (!rows || rows.length === 0) {
+                    container.innerHTML = '<div style="padding:20px;color:#666;text-align:center;">No data available</div>';
+                    return;
+                }
 
-            const tbody = document.createElement('tbody');
-            rows.forEach(r => {
-                const tr = document.createElement('tr');
+                const table = document.createElement('table');
+                table.className = 'detail-table';
+                table.style.width = '100%';
+
+                const thead = document.createElement('thead');
+                const trHead = document.createElement('tr');
                 columns.forEach(c => {
-                    const td = document.createElement('td');
-                    let val = r[c] !== undefined ? r[c] : '';
-                    if (typeof val === 'number') {
-                        // format currency for amounts and % for rates
-                        if (c.toLowerCase().includes('rate')) {
-                            td.textContent = (val * 100).toFixed(1) + '%';
-                        } else if (c.toLowerCase().includes('percent') || c.toLowerCase().includes('allocation')) {
-                            td.textContent = val;
-                        } else {
-                            td.textContent = '$' + Number(val).toLocaleString(undefined, {maximumFractionDigits:0});
-                        }
-                    } else {
-                        td.textContent = val;
-                    }
-                    tr.appendChild(td);
+                    const th = document.createElement('th');
+                    th.textContent = c.replace(/_/g, ' ');
+                    trHead.appendChild(th);
                 });
-                tbody.appendChild(tr);
-            });
+                thead.appendChild(trHead);
+                table.appendChild(thead);
 
-            // Clear container and append
-            container.innerHTML = '';
-            container.appendChild(table);
+                const tbody = document.createElement('tbody');
+                rows.forEach(r => {
+                    const tr = document.createElement('tr');
+                    columns.forEach(c => {
+                        const td = document.createElement('td');
+                        let val = (r[c] !== undefined && r[c] !== null) ? r[c] : '';
+                        if (typeof val === 'number') {
+                            // format currency for amounts and % for rates
+                            if (c.toLowerCase().includes('rate')) {
+                                td.textContent = (val * 100).toFixed(1) + '%';
+                            } else if (c.toLowerCase().includes('percent') || c.toLowerCase().includes('allocation')) {
+                                td.textContent = val;
+                            } else {
+                                td.textContent = '$' + Number(val).toLocaleString(undefined, {maximumFractionDigits:0});
+                            }
+                        } else {
+                            td.textContent = val;
+                        }
+                        tr.appendChild(td);
+                    });
+                    tbody.appendChild(tr);
+                });
+
+                // Clear container and append
+                container.innerHTML = '';
+                container.appendChild(table);
+            } catch (err) {
+                console.error('renderTable error', err);
+                const container = document.getElementById(containerId);
+                if (container) {
+                    container.innerHTML = '<div class="error show">Table render error: ' + (err && err.message ? err.message : err) + '</div>';
+                }
+            }
         }
 
         function toggleShowAll(containerId, data, columns, btn) {
@@ -1058,6 +1125,18 @@
                 renderTable(containerId, data, columns, null);
                 btn.textContent = 'Show first 10';
                 btn.dataset.showing = '1';
+            }
+
+            // Update visible count element (preCount / retCount)
+            try {
+                const countId = containerId === 'preTableContainer' ? 'preCount' : 'retCount';
+                const countEl = document.getElementById(countId);
+                if (countEl) {
+                    const newShown = btn.dataset.showing === '1' ? data.length : Math.min(data.length, 10);
+                    countEl.textContent = 'Showing ' + newShown + ' of ' + data.length + ' rows';
+                }
+            } catch (err) {
+                console.error('toggleShowAll update count error', err);
             }
         }
 
