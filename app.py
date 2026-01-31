@@ -495,6 +495,46 @@ def calculate():
         results = calculator.calculate()
         chart_data = calculator.create_enhanced_charts(results)
 
+        # Serialize per-year tables for the Details tab
+        pre_table = []
+        pre_df = results.get('pre_retirement_df')
+        if pre_df is not None:
+            pre_df = pre_df.reset_index(drop=True)
+            for i, row in pre_df.iterrows():
+                beginning = float(pre_df.loc[i-1, 'Portfolio']) if i > 0 else float(row['Portfolio'])
+                contribution = float(row['Yearly_Contribution']) if 'Yearly_Contribution' in pre_df.columns and not pd.isna(row.get('Yearly_Contribution', 0)) else 0.0
+                tax_savings = float(row['Tax_Savings']) if 'Tax_Savings' in pre_df.columns and not pd.isna(row.get('Tax_Savings', 0)) else 0.0
+                ending = float(row['Portfolio'])
+                pre_table.append({
+                    'Year': int(i),
+                    'Age': int(row['Age']),
+                    'Beginning_Portfolio': beginning,
+                    'Yearly_Contribution': contribution,
+                    'Tax_Savings': tax_savings,
+                    'Ending_Portfolio': ending
+                })
+
+        ret_table = []
+        ret_df = results.get('retirement_df')
+        if ret_df is not None:
+            ret_df = ret_df.reset_index(drop=True)
+            for i, row in ret_df.iterrows():
+                beginning = float(ret_df.loc[i-1, 'Portfolio']) if i > 0 else float(row['Portfolio'])
+                withdrawal = float(row['Withdrawal']) if 'Withdrawal' in ret_df.columns and not pd.isna(row.get('Withdrawal', 0)) else 0.0
+                ending = float(row['Portfolio'])
+                investment_return = ending - (beginning - withdrawal)
+                ret_table.append({
+                    'Year': int(i),
+                    'Age': int(row['Age']),
+                    'Beginning_Portfolio': beginning,
+                    'Withdrawal': withdrawal,
+                    'Investment_Return': investment_return,
+                    'Ending_Portfolio': ending,
+                    'Annual_Budget': float(row['Annual_Budget']) if 'Annual_Budget' in ret_df.columns and not pd.isna(row.get('Annual_Budget', 0)) else 0.0,
+                    'Healthcare_Costs': float(row['Healthcare_Costs']) if 'Healthcare_Costs' in ret_df.columns and not pd.isna(row.get('Healthcare_Costs', 0)) else 0.0,
+                    'Withdrawal_Rate': float(row['Withdrawal_Rate']) if 'Withdrawal_Rate' in ret_df.columns and not pd.isna(row.get('Withdrawal_Rate', 0)) else 0.0
+                })
+
         df = results['retirement_df']
         ending_values = results['ending_values']
         final_portfolio = df['Portfolio'].iloc[-1]
@@ -530,6 +570,10 @@ def calculate():
                 'asset_allocation': {
                     'stocks': f"{calculator.stock_allocation*100:.0f}%",
                     'bonds': f"{calculator.bond_allocation*100:.0f}%"
+                },
+                'details': {
+                    'pre_retirement': pre_table,
+                    'retirement': ret_table
                 }
             }
         })
