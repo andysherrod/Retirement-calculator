@@ -535,6 +535,50 @@ def calculate():
                     'Withdrawal_Rate': float(row['Withdrawal_Rate']) if 'Withdrawal_Rate' in ret_df.columns and not pd.isna(row.get('Withdrawal_Rate', 0)) else 0.0
                 })
 
+        # Build a simplified, single combined table for the Details tab so the frontend can render one table
+        combined_table = []
+        # Build continuous year index and avoid duplicating the retirement-start row
+        year_counter = 0
+        for row in pre_table:
+            investment = float(row['Beginning_Portfolio'])
+            contributions = float(row.get('Yearly_Contribution', 0.0))
+            ending = float(row['Ending_Portfolio'])
+            interest = ending - (investment + contributions)
+            combined_table.append({
+                'Year': year_counter,
+                'Age': row['Age'],
+                'Investment_Amount': investment,
+                'Contributions': contributions,
+                'Interest_Earned': interest,
+                'Withdrawals': 0.0,
+                'Ending_Balance': ending
+            })
+            year_counter += 1
+
+        # Decide start index for retirement rows (skip the initial retirement row if it duplicates the last pre row)
+        ret_start = 0
+        if pre_table and ret_table:
+            if ret_table[0]['Age'] == pre_table[-1]['Age']:
+                ret_start = 1
+
+        for idx in range(ret_start, len(ret_table)):
+            row = ret_table[idx]
+            investment = float(row['Beginning_Portfolio'])
+            withdrawals = float(row.get('Withdrawal', 0.0))
+            ending = float(row['Ending_Portfolio'])
+            interest = float(row.get('Investment_Return', ending - (investment - withdrawals)))
+            combined_table.append({
+                'Year': year_counter,
+                'Age': row['Age'],
+                'Investment_Amount': investment,
+                'Contributions': 0.0,
+                'Interest_Earned': interest,
+                'Withdrawals': withdrawals,
+                'Ending_Balance': ending
+            })
+            year_counter += 1
+
+
         df = results['retirement_df']
         ending_values = results['ending_values']
         final_portfolio = df['Portfolio'].iloc[-1]
@@ -573,7 +617,8 @@ def calculate():
                 },
                 'details': {
                     'pre_retirement': pre_table,
-                    'retirement': ret_table
+                    'retirement': ret_table,
+                    'combined': combined_table
                 }
             }
         })

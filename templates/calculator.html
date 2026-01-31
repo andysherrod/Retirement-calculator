@@ -648,12 +648,6 @@
                         <button id="tabDetails" class="tab" role="tab">Details</button>
                         <div style="flex:1"></div>
                         <button id="downloadAllCsv" class="small-btn">Download All CSVs</button>
-                        <!-- Debug toggle for iPad users -->
-                        <button id="toggleDebug" class="small-btn" style="margin-left:8px;">Toggle Raw JSON</button>
-                    </div>
-                    <!-- Hidden debug output for raw JSON (visible when toggled) -->
-                    <div style="margin-top:12px;">
-                        <pre id="debugJson" style="display:none; max-height:300px; overflow:auto; background:#f6f8fb; padding:12px; border-radius:8px; border:1px solid #e6e9ee; font-size:12px; white-space:pre-wrap;"></pre>
                     </div>
 
                     <div id="tabSummaryContent">
@@ -716,24 +710,13 @@
 
                         <div class="result-card">
                             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-                                <strong>Pre-Retirement (Accumulation)</strong>
+                                <strong>Year-by-Year (Combined)</strong>
                                 <div style="display:flex; gap:8px;">
-                                    <button class="calculate-btn" id="preShowToggle" style="padding:6px 10px; font-size:14px;">Show all</button>
-                                    <button class="small-btn" id="preCsv">Download CSV</button>
+                                    <button class="calculate-btn" id="combinedShowToggle" style="padding:6px 10px; font-size:14px;">Show all</button>
+                                    <button class="small-btn" id="combinedCsv">Download CSV</button>
                                 </div>
                             </div>
-                            <div id="preTableContainer" style="max-height:340px; overflow:auto; border-radius:8px;"></div>
-                        </div>
-
-                        <div class="result-card">
-                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-                                <strong>Retirement (Decumulation)</strong>
-                                <div style="display:flex; gap:8px;">
-                                    <button class="calculate-btn" id="retShowToggle" style="padding:6px 10px; font-size:14px;">Show all</button>
-                                    <button class="small-btn" id="retCsv">Download CSV</button>
-                                </div>
-                            </div>
-                            <div id="retTableContainer" style="max-height:340px; overflow:auto; border-radius:8px;"></div>
+                            <div id="combinedTableContainer" style="max-height:640px; overflow:auto; border-radius:8px;"></div>
                         </div>
 
                     </div>
@@ -903,16 +886,7 @@
             const form = document.getElementById('calculatorForm');
             if (form) {
                 form.dataset.wired = '1';
-                const debugPre = document.getElementById('debugJson');
-                if (debugPre) {
-                    try {
-                        const current = JSON.parse(debugPre.textContent || '{}');
-                        current.form_wired = true;
-                        debugPre.textContent = JSON.stringify(current, null, 2);
-                    } catch (err) {
-                        debugPre.textContent = JSON.stringify({form_wired: true}, null, 2);
-                    }
-                }
+
             }
             console.log('calculatorForm submit handler attached');
         } catch (err) {
@@ -996,46 +970,8 @@
 
             // Save results for details tab rendering
             window._calculatorResults = results;
-            // Populate raw JSON debug area (useful on devices without DevTools)
-            try {
-                const debugPre = document.getElementById('debugJson');
-                if (debugPre) {
-                    // Show a compact subset by default to keep it readable
-                    debugPre.textContent = JSON.stringify({
-                        percentiles: results.percentiles || results.percentiles || null,
-                        success_probability: results.success_probability || null,
-                        details_preview: {
-                            pre_retirement: (results.details && results.details.pre_retirement) ? results.details.pre_retirement.slice(0,3) : [],
-                            retirement: (results.details && results.details.retirement) ? results.details.retirement.slice(0,3) : []
-                        }
-                    }, null, 2);
-                }
-            } catch (err) {
-                console.error('Failed to populate debugJson', err);
-            }
-
             renderDetails(results.details || {pre_retirement: [], retirement: []});
             switchTab('summary');
-
-            // Wire up debug toggle button (idempotent)
-            try {
-                const toggleBtn = document.getElementById('toggleDebug');
-                const debugPre = document.getElementById('debugJson');
-                if (toggleBtn && debugPre && !toggleBtn.dataset.wired) {
-                    toggleBtn.addEventListener('click', function() {
-                        if (debugPre.style.display === 'none' || debugPre.style.display === '') {
-                            debugPre.style.display = 'block';
-                            this.textContent = 'Hide Raw JSON';
-                        } else {
-                            debugPre.style.display = 'none';
-                            this.textContent = 'Toggle Raw JSON';
-                        }
-                    });
-                    toggleBtn.dataset.wired = '1';
-                }
-            } catch (err) {
-                console.error('Failed to wire toggleDebug', err);
-            }
         }
         
         // --- Details rendering helpers ------------------------------------------------
@@ -1064,129 +1000,117 @@
         document.getElementById('tabDetails').addEventListener('click', () => switchTab('details'));
 
         function renderDetails(details) {
-            // details: { pre_retirement: [...], retirement: [...] }
-            const preData = details.pre_retirement || [];
-            const retData = details.retirement || [];
+            // Build combined table if provided, otherwise merge pre + retirement
+            const combined = (details && details.combined && Array.isArray(details.combined)) ? details.combined.slice() : [];
+            if (combined.length === 0) {
+                const preData = (details && details.pre_retirement) ? details.pre_retirement : [];
+                const retData = (details && details.retirement) ? details.retirement : [];
+                preData.forEach(r => {
+                    const investment = r.Beginning_Portfolio || 0;
+                    const contributions = r.Yearly_Contribution || 0;
+                    const ending = r.Ending_Portfolio || 0;
+                    const interest = ending - (investment + contributions);
+                    combined.push({
+                        Year: r.Year,
+                        Age: r.Age,
+                        Investment_Amount: investment,
+                        Contributions: contributions,
+                        Interest_Earned: interest,
+                        Withdrawals: 0.0,
+                        Ending_Balance: ending
+                    });
+                });
+                retData.forEach(r => {
+                    const investment = r.Beginning_Portfolio || 0;
+                    const withdrawals = r.Withdrawal || 0;
+                    const ending = r.Ending_Portfolio || 0;
+                    const interest = r.Investment_Return !== undefined ? r.Investment_Return : (ending - (investment - withdrawals));
+                    combined.push({
+                        Year: r.Year,
+                        Age: r.Age,
+                        Investment_Amount: investment,
+                        Contributions: 0.0,
+                        Interest_Earned: interest,
+                        Withdrawals: withdrawals,
+                        Ending_Balance: ending
+                    });
+                });
+            }
 
-            // Render preview (first 10) tables
-            renderTable('preTableContainer', preData, ['Year', 'Age', 'Beginning_Portfolio', 'Yearly_Contribution', 'Tax_Savings', 'Ending_Portfolio'], 10);
-            renderTable('retTableContainer', retData, ['Year', 'Age', 'Beginning_Portfolio', 'Withdrawal', 'Investment_Return', 'Ending_Portfolio', 'Annual_Budget', 'Healthcare_Costs', 'Withdrawal_Rate'], 10);
+            // Render combined table (first 10 rows preview by default)
+            renderTable('combinedTableContainer', combined, ['Year', 'Age', 'Investment_Amount', 'Contributions', 'Interest_Earned', 'Withdrawals', 'Ending_Balance'], 10);
 
-            // Add visible counts so it's obvious whether rows were rendered
+            // Add visible count and small JSON preview
             try {
-                const preCountId = 'preCount';
-                let preCountEl = document.getElementById(preCountId);
-                if (!preCountEl) {
-                    preCountEl = document.createElement('div');
-                    preCountEl.id = preCountId;
-                    preCountEl.style.fontSize = '12px';
-                    preCountEl.style.color = '#666';
-                    preCountEl.style.marginTop = '8px';
-                    const preContainer = document.getElementById('preTableContainer');
-                    if (preContainer && preContainer.parentElement) preContainer.parentElement.insertBefore(preCountEl, preContainer.nextSibling);
+                const combinedCountId = 'combinedCount';
+                let combinedCountEl = document.getElementById(combinedCountId);
+                if (!combinedCountEl) {
+                    combinedCountEl = document.createElement('div');
+                    combinedCountEl.id = combinedCountId;
+                    combinedCountEl.style.fontSize = '12px';
+                    combinedCountEl.style.color = '#666';
+                    combinedCountEl.style.marginTop = '8px';
+                    const container = document.getElementById('combinedTableContainer');
+                    if (container && container.parentElement) container.parentElement.insertBefore(combinedCountEl, container.nextSibling);
                 }
-                preCountEl.textContent = 'Showing ' + Math.min(preData.length, 10) + ' of ' + preData.length + ' rows';
+                combinedCountEl.textContent = 'Showing ' + Math.min(combined.length, 10) + ' of ' + combined.length + ' rows';
 
-                const retCountId = 'retCount';
-                let retCountEl = document.getElementById(retCountId);
-                if (!retCountEl) {
-                    retCountEl = document.createElement('div');
-                    retCountEl.id = retCountId;
-                    retCountEl.style.fontSize = '12px';
-                    retCountEl.style.color = '#666';
-                    retCountEl.style.marginTop = '8px';
-                    const retContainer = document.getElementById('retTableContainer');
-                    if (retContainer && retContainer.parentElement) retContainer.parentElement.insertBefore(retCountEl, retContainer.nextSibling);
-                }
-                retCountEl.textContent = 'Showing ' + Math.min(retData.length, 10) + ' of ' + retData.length + ' rows';
 
-                // Add small JSON previews (first 3 rows) for iPad users without DevTools
-                const prePreviewId = 'prePreview';
-                let prePreview = document.getElementById(prePreviewId);
-                if (!prePreview) {
-                    prePreview = document.createElement('pre');
-                    prePreview.id = prePreviewId;
-                    prePreview.style.background = '#f8f9ff';
-                    prePreview.style.padding = '8px';
-                    prePreview.style.borderRadius = '6px';
-                    prePreview.style.marginTop = '6px';
-                    prePreview.style.fontSize = '12px';
-                    const preContainer = document.getElementById('preTableContainer');
-                    if (preContainer) preContainer.insertAdjacentElement('afterend', prePreview);
-                }
-                prePreview.textContent = JSON.stringify(preData.slice(0,3), null, 2);
-
-                const retPreviewId = 'retPreview';
-                let retPreview = document.getElementById(retPreviewId);
-                if (!retPreview) {
-                    retPreview = document.createElement('pre');
-                    retPreview.id = retPreviewId;
-                    retPreview.style.background = '#f8f9ff';
-                    retPreview.style.padding = '8px';
-                    retPreview.style.borderRadius = '6px';
-                    retPreview.style.marginTop = '6px';
-                    retPreview.style.fontSize = '12px';
-                    const retContainer = document.getElementById('retTableContainer');
-                    if (retContainer) retContainer.insertAdjacentElement('afterend', retPreview);
-                }
-                retPreview.textContent = JSON.stringify(retData.slice(0,3), null, 2);
 
             } catch (err) {
-                console.error('Error updating counts', err);
+                console.error('Error updating combined counts', err);
             }
 
             // Wire buttons (use .onclick to avoid duplicate listeners and ensure graceful failure on missing elements)
             try {
-                const preShowBtn = document.getElementById('preShowToggle');
-                if (preShowBtn) {
-                    preShowBtn.onclick = function() { toggleShowAll('preTableContainer', preData, ['Year', 'Age', 'Beginning_Portfolio', 'Yearly_Contribution', 'Tax_Savings', 'Ending_Portfolio'], this); };
-                } else console.warn('preShowToggle not found');
+                const showBtn = document.getElementById('combinedShowToggle');
+                if (showBtn) {
+                    showBtn.onclick = function() { toggleShowAll('combinedTableContainer', combined, ['Year', 'Age', 'Investment_Amount', 'Contributions', 'Interest_Earned', 'Withdrawals', 'Ending_Balance'], this); };
+                } else console.warn('combinedShowToggle not found');
 
-                const retShowBtn = document.getElementById('retShowToggle');
-                if (retShowBtn) {
-                    retShowBtn.onclick = function() { toggleShowAll('retTableContainer', retData, ['Year', 'Age', 'Beginning_Portfolio', 'Withdrawal', 'Investment_Return', 'Ending_Portfolio', 'Annual_Budget', 'Healthcare_Costs', 'Withdrawal_Rate'], this); };
-                } else console.warn('retShowToggle not found');
-
-                const preCsvBtn = document.getElementById('preCsv');
-                if (preCsvBtn) {
-                    preCsvBtn.onclick = function() { downloadCSV('pre_retirement.csv', preData); };
-                } else console.warn('preCsv not found');
-
-                const retCsvBtn = document.getElementById('retCsv');
-                if (retCsvBtn) {
-                    retCsvBtn.onclick = function() { downloadCSV('retirement.csv', retData); };
-                } else console.warn('retCsv not found');
+                const csvBtn = document.getElementById('combinedCsv');
+                if (csvBtn) {
+                    csvBtn.onclick = function() { downloadCSV('year_by_year.csv', combined); };
+                } else console.warn('combinedCsv not found');
 
                 const downloadAllBtn = document.getElementById('downloadAllCsv');
                 if (downloadAllBtn) {
-                    downloadAllBtn.onclick = function() { downloadCSV('pre_retirement.csv', preData); downloadCSV('retirement.csv', retData); };
-                } else console.warn('downloadAllCsv not found');
-
-                const debugPre = document.getElementById('debugJson');
-                if (debugPre) {
-                    try {
-                        const current = JSON.parse(debugPre.textContent || '{}');
-                        current.button_wiring = {
-                            preShowToggle: !!preShowBtn,
-                            retShowToggle: !!retShowBtn,
-                            preCsv: !!preCsvBtn,
-                            retCsv: !!retCsvBtn,
-                            downloadAllCsv: !!downloadAllBtn
-                        };
-                        debugPre.textContent = JSON.stringify(current, null, 2);
-                    } catch (err) {
-                        debugPre.textContent = JSON.stringify({button_wiring: {
-                            preShowToggle: !!preShowBtn,
-                            retShowToggle: !!retShowBtn,
-                            preCsv: !!preCsvBtn,
-                            retCsv: !!retCsvBtn,
-                            downloadAllCsv: !!downloadAllBtn
-                        }}, null, 2);
-                    }
+                    downloadAllBtn.onclick = function() { downloadCSV('year_by_year.csv', combined); };
                 }
+
+
             } catch (err) {
                 console.error('Error wiring buttons in renderDetails', err);
             }
+        }
+
+        function formatCurrency(value) {
+            const n = Number(value) || 0;
+            return '$' + n.toLocaleString(undefined, {maximumFractionDigits: 0});
+        }
+
+        function renderTable(containerId, data, columns, limit) {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+            const rows = (Array.isArray(data) ? data : []).slice(0, limit == null ? undefined : limit);
+
+            let html = '<table class="detail-table"><thead><tr>' + columns.map(c => '<th>' + c.replace(/_/g, ' ') + '</th>').join('') + '</tr></thead><tbody>';
+
+            rows.forEach(r => {
+                html += '<tr>' + columns.map(col => {
+                    const v = r[col] !== undefined ? r[col] : r[col.replace(/ /g, '_')];
+                    if (/Investment|Contributions|Withdrawals|Ending|Interest/i.test(col)) {
+                        return '<td>' + formatCurrency(v) + '</td>';
+                    }
+                    if (typeof v === 'number') return '<td>' + v + '</td>';
+                    return '<td>' + (v === undefined ? '' : String(v)) + '</td>';
+                }).join('') + '</tr>';
+            });
+
+            if (!rows.length) html += '<tr><td colspan="' + columns.length + '" style="padding:12px; color:#666;">No data available</td></tr>';
+
+            html += '</tbody></table>';
+            container.innerHTML = html;
         }
 
         function toggleShowAll(containerId, data, columns, btn) {
@@ -1201,9 +1125,13 @@
                 btn.dataset.showing = '1';
             }
 
-            // Update visible count element (preCount / retCount)
+            // Update visible count element (preCount / retCount / combinedCount)
             try {
-                const countId = containerId === 'preTableContainer' ? 'preCount' : 'retCount';
+                let countId = null;
+                if (containerId === 'preTableContainer') countId = 'preCount';
+                else if (containerId === 'retTableContainer') countId = 'retCount';
+                else if (containerId === 'combinedTableContainer') countId = 'combinedCount';
+
                 const countEl = document.getElementById(countId);
                 if (countEl) {
                     const newShown = btn.dataset.showing === '1' ? data.length : Math.min(data.length, 10);
