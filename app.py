@@ -5,8 +5,9 @@ import pandas as pd
 import numpy as np
 import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend
-import matplotlib.pyplot as plt
-import seaborn as sns
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
+import matplotlib.ticker
 import base64
 import io
 import json
@@ -169,6 +170,12 @@ class EnhancedRetirementCalculator:
 
         future_portfolio = pre_retirement_df.loc[years_until_retirement, 'Portfolio']
 
+        # Run Monte Carlo for pre-retirement (accumulation) phase
+        pre_retirement_contributions = pre_retirement_df.loc[1:years_until_retirement, 'Yearly_Contribution'].values
+        pre_retirement_median_path = self.monte_carlo_pre_retirement_vectorized(
+            self.portfolio_total, years_until_retirement, pre_retirement_contributions
+        )
+
         # Retirement phase calculations remain similar but with enhanced Monte Carlo
         df = pd.DataFrame(index=range(retirement_years + 1))
         df.loc[0, 'Age'] = self.age_retire
@@ -220,7 +227,7 @@ class EnhancedRetirementCalculator:
                 break
 
         # Enhanced Monte Carlo with vectorized operations
-        success_probability, ending_values = self.monte_carlo_simulation_vectorized(
+        success_probability, ending_values, median_path = self.monte_carlo_simulation_vectorized(
             future_portfolio, retirement_years, years_until_retirement,
             initial_retirement_budget, spending_adjustments
         )
@@ -233,7 +240,9 @@ class EnhancedRetirementCalculator:
             'years_until_retirement': years_until_retirement,
             'retirement_years': retirement_years,
             'initial_retirement_budget': initial_retirement_budget,
-            'ending_values': ending_values  # New: for probability distribution
+            'ending_values': ending_values,  # New: for probability distribution
+            'median_path': median_path,  # New: median Monte Carlo path for retirement years
+            'pre_retirement_median_path': pre_retirement_median_path  # New: median path for accumulation
         }
 
     def monte_carlo_simulation_vectorized(self, future_portfolio, retirement_years, years_until_retirement,
@@ -277,8 +286,42 @@ class EnhancedRetirementCalculator:
         # Calculate success rate and ending values
         ending_values = portfolios[:, -1]
         success_rate = (ending_values > 0).mean() * 100
+        
+        # Calculate median path for visualization
+        median_path = np.median(portfolios, axis=0)
 
-        return success_rate, ending_values
+        return success_rate, ending_values, median_path
+
+    def monte_carlo_pre_retirement_vectorized(self, initial_portfolio, years_until_retirement, 
+                                              yearly_contributions):
+        """Monte Carlo simulation for accumulation phase - returns median path"""
+        num_simulations = int(self.num_simulations)
+        
+        # Generate correlated returns for accumulation phase
+        stock_returns, bond_returns = self.generate_correlated_returns(num_simulations, years_until_retirement)
+        portfolio_returns = self.calculate_portfolio_returns(stock_returns, bond_returns)
+        
+        # Initialize arrays for vectorized calculations
+        portfolios = np.full((num_simulations, years_until_retirement + 1), initial_portfolio, dtype=np.float64)
+        
+        # Vectorized simulation across all scenarios
+        for year in range(years_until_retirement):
+            # Determine contribution for this year
+            if year < len(yearly_contributions):
+                contribution = yearly_contributions[year]
+            else:
+                contribution = 0
+            
+            # Apply returns with contribution
+            current_portfolios = portfolios[:, year]
+            after_contribution = current_portfolios + contribution
+            returns = after_contribution * portfolio_returns[:, year]
+            portfolios[:, year + 1] = after_contribution + returns
+        
+        # Calculate median path for visualization
+        median_path = np.median(portfolios, axis=0)
+        
+        return median_path
 
     def calculate_tax_efficient_contributions(self, year: int) -> Dict[str, float]:
         """Calculate tax-efficient allocation across multiple investment streams"""
@@ -318,41 +361,52 @@ class EnhancedRetirementCalculator:
         }
 
     def create_enhanced_charts(self, results):
-        """Create enhanced charts including probability distribution"""
+        """Create enhanced charts including probability distribution - THREAD SAFE OO API"""
         pre_retirement_df = results['pre_retirement_df']
         df = results['retirement_df']
         ending_values = results['ending_values']
+        median_path = results.get('median_path')
+        pre_retirement_median_path = results.get('pre_retirement_median_path')
 
-        # Create a larger figure with more subplots
-        fig = plt.figure(figsize=(20, 16))
-
+        # Create figure using OO API (thread-safe)
+        fig = Figure(figsize=(20, 16))
+        
         # Layout: 3 rows, 2 columns
-        ax1 = plt.subplot(3, 2, 1)
-        ax2 = plt.subplot(3, 2, 2)
-        ax3 = plt.subplot(3, 2, 3)
-        ax4 = plt.subplot(3, 2, 4)
-        ax5 = plt.subplot(3, 2, 5)
-        ax6 = plt.subplot(3, 2, 6)
+        ax1 = fig.add_subplot(3, 2, 1)
+        ax2 = fig.add_subplot(3, 2, 2)
+        ax3 = fig.add_subplot(3, 2, 3)
+        ax4 = fig.add_subplot(3, 2, 4)
+        ax5 = fig.add_subplot(3, 2, 5)
+        ax6 = fig.add_subplot(3, 2, 6)
 
-        # Chart 1: Pre-Retirement Portfolio Growth
-        ax1.plot(pre_retirement_df['Age'], pre_retirement_df['Portfolio'], 'g-', linewidth=3, label='Portfolio Value')
+        # Chart 1: Pre-Retirement Portfolio Growth (Median Monte Carlo Path)
+        if pre_retirement_median_path is not None:
+            pre_retirement_ages = self.age_current + np.arange(len(pre_retirement_median_path))
+            ax1.plot(pre_retirement_ages, pre_retirement_median_path, 'purple', linewidth=3, label='Median Path (Monte Carlo)', linestyle='-')
+            ax1.fill_between(pre_retirement_ages, 0, pre_retirement_median_path, alpha=0.2, color='purple')
+        ax1.plot(pre_retirement_df['Age'], pre_retirement_df['Portfolio'], 'g--', linewidth=2, label='Deterministic Path', alpha=0.6)
         ax1.bar(pre_retirement_df['Age'], pre_retirement_df['Yearly_Contribution'],
                 color='blue', alpha=0.4, label='Annual Contributions', width=0.8)
-        ax1.set_title('Pre-Retirement Portfolio Growth', fontsize=14, fontweight='bold')
+        ax1.set_title('Pre-Retirement Portfolio Growth: Median vs Deterministic', fontsize=14, fontweight='bold')
         ax1.set_xlabel('Age')
         ax1.set_ylabel('Portfolio Value ($)')
         ax1.grid(True, alpha=0.3)
         ax1.legend()
-        ax1.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'${x/1000:.0f}K'))
+        ax1.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda x, p: f'${x/1000:.0f}K'))
 
-        # Chart 2: Retirement Portfolio Value
-        ax2.plot(df['Age'], df['Portfolio'], 'b-', linewidth=3)
-        ax2.fill_between(df['Age'], 0, df['Portfolio'], alpha=0.3, color='blue')
-        ax2.set_title('Retirement Portfolio Depletion', fontsize=14, fontweight='bold')
+        # Chart 2: Retirement Portfolio Value (Median Monte Carlo Path)
+        if median_path is not None:
+            retirement_ages = self.age_retire + np.arange(len(median_path))
+            ax2.plot(retirement_ages, median_path, 'purple', linewidth=3, label='Median Path (Monte Carlo)', linestyle='-')
+            ax2.fill_between(retirement_ages, 0, median_path, alpha=0.2, color='purple')
+        ax2.plot(df['Age'], df['Portfolio'], 'b--', linewidth=2, label='Deterministic Path', alpha=0.6)
+        ax2.fill_between(df['Age'], 0, df['Portfolio'], alpha=0.2, color='blue')
+        ax2.set_title('Retirement Portfolio: Median vs Deterministic', fontsize=14, fontweight='bold')
         ax2.set_xlabel('Age')
         ax2.set_ylabel('Portfolio Value ($)')
         ax2.grid(True, alpha=0.3)
-        ax2.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'${x/1000:.0f}K'))
+        ax2.legend()
+        ax2.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda x, p: f'${x/1000:.0f}K'))
 
         # Chart 3: Income vs Expenses
         width = 0.35
@@ -366,10 +420,9 @@ class EnhancedRetirementCalculator:
         ax3.set_ylabel('Amount ($)')
         ax3.grid(True, alpha=0.3)
         ax3.legend()
-        ax3.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'${x/1000:.0f}K'))
+        ax3.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda x, p: f'${x/1000:.0f}K'))
 
         # Chart 4: Asset Allocation Performance
-        years = np.arange(len(df))
         stock_component = df['Portfolio'] * self.stock_allocation
         bond_component = df['Portfolio'] * self.bond_allocation
         ax4.fill_between(df['Age'], 0, stock_component, alpha=0.6, color='red', label=f'Stocks ({self.stock_allocation*100:.0f}%)')
@@ -379,7 +432,7 @@ class EnhancedRetirementCalculator:
         ax4.set_ylabel('Value ($)')
         ax4.legend()
         ax4.grid(True, alpha=0.3)
-        ax4.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'${x/1000:.0f}K'))
+        ax4.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda x, p: f'${x/1000:.0f}K'))
 
         # Chart 5: Probability Distribution of Ending Values
         successful = ending_values[ending_values > 0]
@@ -399,7 +452,7 @@ class EnhancedRetirementCalculator:
         ax5.set_ylabel('Probability Density')
         ax5.legend()
         ax5.grid(True, alpha=0.3)
-        ax5.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'${x/1000000:.1f}M'))
+        ax5.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda x, p: f'${x/1000000:.1f}M'))
 
         # Chart 6: Withdrawal Rate Analysis
         withdrawal_rates = df['Withdrawal_Rate'] * 100
@@ -414,12 +467,13 @@ class EnhancedRetirementCalculator:
         ax6.grid(True, alpha=0.3)
         ax6.set_ylim(0, max(15, withdrawal_rates.max() * 1.1))
 
-        plt.tight_layout()
+        # Use OO API for saving (thread-safe)
+        fig.tight_layout()
         img = io.BytesIO()
-        plt.savefig(img, format='png', dpi=150, bbox_inches='tight')
+        canvas = FigureCanvas(fig)
+        canvas.print_png(img)
         img.seek(0)
         plot_url = base64.b64encode(img.getvalue()).decode()
-        plt.close()
 
         return plot_url
 
