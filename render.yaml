@@ -2,6 +2,7 @@ services:
   - type: web
     name: retirement-calculator
     env: python
+    branch: redesign
     buildCommand: ""
     startCommand: gunicorn app:app
     plan: free
