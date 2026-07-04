@@ -158,6 +158,7 @@
             
             <div class="assumptions-box">
                 <div><strong>Target Budget:</strong> <span id="sum-budget"></span></div>
+                <div><strong>Total Out-of-Pocket:</strong> <span id="sum-total-invested" style="color:#219ebc; font-weight:bold;"></span></div>
                 <div><strong>Effective Tax Rate:</strong> <span id="sum-tax"></span></div>
                 <div><strong>Expected Return:</strong> <span id="sum-return"></span></div>
                 <div><strong>Inflation:</strong> <span id="sum-inflation"></span></div>
@@ -285,7 +286,6 @@
                 const container = document.getElementById('investment-streams-container');
                 if (container.children.length === 0) {
                     addInvestmentStream();
-                    // AUTO-FILL LOGIC REMOVED HERE
                 }
                 
                 goToStep('step2');
@@ -305,6 +305,7 @@
 
             if (result.success) {
                 document.getElementById('sum-budget').innerText = currency.format(baseData.monthly_budget * 12) + "/yr";
+                document.getElementById('sum-total-invested').innerText = currency.format(result.results.total_invested);
                 document.getElementById('sum-tax').innerText = result.results.effective_tax_rate.toFixed(1) + "%";
                 document.getElementById('sum-return').innerText = baseData.expected_return + "%";
                 document.getElementById('sum-inflation').innerText = baseData.inflation_rate + "%";
@@ -321,7 +322,6 @@
                     contextEl.innerText = 'Excellent! You are in the "sweet spot" for a highly secure retirement.';
                 } else if (probFloat >= 60) {
                     probEl.style.color = '#f39c12';
-                    // TYPO FIXED HERE: was context.innerText
                     contextEl.innerText = 'Caution. You are slightly below the ideal 80% target and may need to adjust spending during market downturns.';
                 } else {
                     probEl.style.color = '#dc3545';
