@@ -29,21 +29,29 @@
         .gap-alert.warning { background: #fff3cd; color: #856404; border: 1px solid #ffeeba; }
         .gap-alert.success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
 
-        /* Streams & Charts */
-        .slider-group { margin-bottom: 20px; }
-        .slider-group input[type="range"] { width: 100%; margin-top: 10px; }
+        /* Streams */
         .investment-stream { background: #f8f9ff; padding: 15px; border-radius: 10px; margin: 15px 0; border-left: 4px solid #667eea; }
         .stream-header { display: flex; justify-content: space-between; margin-bottom: 10px; }
         .remove-stream { background: #dc3545; color: white; border: none; padding: 5px 10px; border-radius: 5px; cursor: pointer; font-size: 12px; }
         .add-stream-btn { background: #28a745; color: white; border: none; padding: 12px; border-radius: 8px; cursor: pointer; width: 100%; font-weight: bold; margin-bottom: 20px;}
         
-        #finalChart { max-width: 100%; border-radius: 10px; margin-top: 20px; display: none; }
+        /* Summary Explanations */
+        .assumptions-box { background: #f8f9fa; padding: 15px; border-radius: 10px; margin-bottom: 20px; display: flex; justify-content: space-around; flex-wrap: wrap; gap: 10px; border: 1px solid #e9ecef; }
+        .assumptions-box div { font-size: 0.95em; color: #2c3e50; }
+        .explanation-box { background: #eef2ff; padding: 20px; border-radius: 10px; margin-bottom: 20px; font-size: 0.95em; color: #444; line-height: 1.6; border-left: 4px solid #667eea; }
+        
+        #finalChart { max-width: 100%; border-radius: 10px; margin-bottom: 20px; display: none; }
         .detail-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 20px; }
         .detail-table th { background: #f8f9fa; padding: 10px; text-align: left; border-bottom: 2px solid #e9ecef; }
         .detail-table td { padding: 10px; border-bottom: 1px solid #e9ecef; }
         .detail-table tr:nth-child(even) { background: #fbfdff; }
         .loading { display: none; text-align: center; padding: 20px; }
         .loading.show { display: block; }
+        
+        @media (max-width: 600px) {
+            .form-row, .results-grid { grid-template-columns: 1fr; }
+            .assumptions-box { flex-direction: column; align-items: flex-start; }
+        }
     </style>
 </head>
 <body>
@@ -83,7 +91,6 @@
         <div id="step2" style="display: none;">
             <div class="header-text">
                 <h1 id="greeting">Here is your outlook.</h1>
-                <p id="assumptions-text" style="font-size: 0.9em; color: #666;"></p>
             </div>
 
             <div class="results-grid">
@@ -107,21 +114,16 @@
         <div id="step3" style="display: none;">
             <div class="header-text">
                 <h1>Optimize Your Portfolio</h1>
-                <p>Adjust your asset allocation and add investment streams to hit your goal.</p>
+                <p>Add investment streams to hit your target goal.</p>
             </div>
             
-            <div class="form-row">
-                <div class="slider-group">
-                    <label>Stock Allocation: <span id="stock-val">70</span>%</label>
-                    <input type="range" id="stock_allocation" min="0" max="100" value="70" oninput="updateAllocation('stock')">
-                </div>
-                <div class="slider-group">
-                    <label>Bond Allocation: <span id="bond-val">30</span>%</label>
-                    <input type="range" id="bond_allocation" min="0" max="100" value="30" oninput="updateAllocation('bond')">
-                </div>
+            <div class="result-card" style="margin-bottom: 25px; border-top-color: #28a745;">
+                <h3>Target Yearly Investment Needed</h3>
+                <div class="amount" id="target-yearly-investment-display" style="color: #28a745;">$0</div>
+                <p style="font-size: 0.9em; color: #666; margin-top: 5px;">Based on your current gap, this is the total estimated amount you need to save per year to reach your goal.</p>
             </div>
 
-            <h3 style="margin: 20px 0 10px; color: #2c3e50; border-bottom: 2px solid #e9ecef; padding-bottom: 5px;">Investment Streams</h3>
+            <h3 style="margin: 20px 0 10px; color: #2c3e50; border-bottom: 2px solid #e9ecef; padding-bottom: 5px;">My Investment Streams</h3>
             <div id="investment-streams-container"></div>
             <button type="button" class="add-stream-btn" onclick="addInvestmentStream()">+ Add Investment Stream</button>
 
@@ -134,20 +136,35 @@
         <!-- PHASE 4: Final Results -->
         <div id="step4" style="display: none;">
             <div class="header-text">
-                <h1>Your Optimized Plan</h1>
-                <p id="final-probability" style="font-weight:bold; font-size:1.2em; color: #28a745;"></p>
+                <h1>Your Personalized Plan</h1>
+                <p id="final-probability" style="font-weight:bold; font-size:1.4em; color: #28a745; margin-top: 5px;"></p>
             </div>
             
-            <img id="finalChart" src="" alt="Monte Carlo Analysis Chart" style="width: 100%; margin-bottom: 30px;">
+            <div class="assumptions-box">
+                <div><strong>Retiring At:</strong> <span id="sum-retire"></span></div>
+                <div><strong>Target Budget (Today):</strong> <span id="sum-budget"></span>/yr</div>
+                <div><strong>Expected Return:</strong> <span id="sum-return"></span></div>
+                <div><strong>Inflation:</strong> <span id="sum-inflation"></span></div>
+            </div>
+
+            <div class="explanation-box">
+                <p><strong>Understanding your results:</strong> The charts below visualize your financial journey. The top chart shows a <em>Monte Carlo simulation</em>—instead of assuming you get exactly your expected return every single year, we ran 10,000 simulations that mimic the natural, unpredictable ups and downs of the stock market. The probability score above shows how many of those 10,000 scenarios resulted in your money successfully lasting your entire expected lifespan.</p>
+                <p style="margin-top: 10px;">The bottom chart shows exactly how your target lifestyle will be funded year-by-year during retirement, breaking down what comes from your fixed benefits versus what needs to be withdrawn from your portfolio.</p>
+            </div>
             
-            <div style="display: flex; justify-content: space-between; align-items: center;">
+            <img id="finalChart" src="" alt="Monte Carlo Analysis Chart" style="width: 100%;">
+            
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 20px;">
                 <h3 style="color: #2c3e50;">Year-by-Year Details</h3>
                 <button class="secondary-btn" style="width: auto; margin: 0; padding: 8px 15px;" onclick="toggleTableLength()" id="toggleTableBtn">Show All Rows</button>
             </div>
             
             <div id="table-container" style="max-height: 400px; overflow-y: auto; border: 1px solid #e9ecef; border-radius: 10px; margin-top: 15px;"></div>
 
-            <button class="secondary-btn" style="margin-top: 30px;" onclick="goToStep('step3')">Adjust Strategy</button>
+            <div style="display: flex; gap: 15px; margin-top: 30px;">
+                <button class="secondary-btn" style="margin-top: 0;" onclick="goToStep('step3')">Adjust Strategy</button>
+                <button class="primary-btn" style="margin-top: 0;" onclick="goToStep('step1')">Start Over</button>
+            </div>
         </div>
 
     </div>
@@ -207,15 +224,6 @@
             return streams;
         }
 
-        function updateAllocation(source) {
-            const stockSlider = document.getElementById('stock_allocation');
-            const bondSlider = document.getElementById('bond_allocation');
-            if(source === 'stock') bondSlider.value = 100 - stockSlider.value;
-            if(source === 'bond') stockSlider.value = 100 - bondSlider.value;
-            document.getElementById('stock-val').innerText = stockSlider.value;
-            document.getElementById('bond-val').innerText = bondSlider.value;
-        }
-
         // Phase 1 to 2
         document.getElementById('gapForm').addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -238,7 +246,6 @@
             
             if (result.success) {
                 document.getElementById('greeting').innerText = `${result.data.name}, here is your outlook.`;
-                document.getElementById('assumptions-text').innerText = `Based on a ${result.data.expected_return}% expected return and ${result.data.inflation_rate}% inflation.`;
                 
                 document.getElementById('target-income').innerText = currency.format(result.data.target_income_future);
                 document.getElementById('projected-income').innerText = currency.format(result.data.projected_income_future);
@@ -249,18 +256,17 @@
                     alertBox.innerHTML = `Great news! You have a projected surplus of <strong>${currency.format(result.data.surplus)} per year</strong>.`;
                 } else {
                     alertBox.className = 'gap-alert warning';
-                    alertBox.innerHTML = `You have an estimated shortfall of <strong>${currency.format(result.data.shortfall)} per year</strong>. Monte Carlo simulations project you need to invest an additional <strong>${currency.format(result.data.required_monthly_investment)} per month</strong> to close this gap.`;
+                    alertBox.innerHTML = `You have an estimated shortfall of <strong>${currency.format(result.data.shortfall)} per year</strong>.`;
                 }
                 
-                // Prep for Phase 3: Auto-populate the stream with the required amount
-                const container = document.getElementById('investment-streams-container');
-                container.innerHTML = ''; 
-                addInvestmentStream();
+                // Prep for Phase 3: Display the required yearly investment in the banner
+                const yearlyNeeded = result.data.required_monthly_investment * 12;
+                document.getElementById('target-yearly-investment-display').innerText = currency.format(yearlyNeeded);
                 
-                if (!result.data.is_on_track && result.data.required_monthly_investment > 0) {
-                    const firstStreamInput = document.querySelector('.stream-contribution');
-                    // We multiply by 12 because the Phase 3 input asks for Yearly Contribution
-                    firstStreamInput.value = Math.round(result.data.required_monthly_investment * 12);
+                // Add an initial empty stream if none exist
+                const container = document.getElementById('investment-streams-container');
+                if (container.children.length === 0) {
+                    addInvestmentStream();
                 }
                 
                 goToStep('step2');
@@ -272,13 +278,20 @@
         // Phase 3 to 4
         async function runAdvancedSimulation() {
             document.getElementById('loadingMessage').classList.add('show');
-            const advancedData = { ...baseData, investment_streams: collectStreams(), stock_allocation: parseFloat(document.getElementById('stock_allocation').value), bond_allocation: parseFloat(document.getElementById('bond_allocation').value) };
+            const advancedData = { ...baseData, investment_streams: collectStreams() };
+            
             const response = await fetch('/calculate_advanced', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(advancedData) });
             const result = await response.json();
             document.getElementById('loadingMessage').classList.remove('show');
 
             if (result.success) {
-                document.getElementById('final-probability').innerText = `Success Probability: ${result.results.success_probability}`;
+                // Populate Assumptions Bar
+                document.getElementById('sum-retire').innerText = "Age " + baseData.age_retire;
+                document.getElementById('sum-budget').innerText = currency.format(baseData.monthly_budget * 12);
+                document.getElementById('sum-return').innerText = baseData.expected_return + "%";
+                document.getElementById('sum-inflation').innerText = baseData.inflation_rate + "%";
+
+                document.getElementById('final-probability').innerText = `Simulation Success Rate: ${result.results.success_probability}`;
                 document.getElementById('finalChart').src = 'data:image/png;base64,' + result.results.chart;
                 document.getElementById('finalChart').style.display = 'block';
                 fullTableData = result.results.combined_table;

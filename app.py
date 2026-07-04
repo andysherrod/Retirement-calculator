@@ -24,30 +24,24 @@ class InvestmentStream:
 
 class EnhancedRetirementCalculator:
     def __init__(self, age_current, age_retire, portfolio_total, investment_streams, 
-                 stock_allocation, bond_allocation, target_budget, monthly_benefits,
-                 expected_return, inflation_rate):
+                 target_budget, monthly_benefits, expected_return, inflation_rate):
         self.age_current = age_current
         self.age_retire = age_retire
         self.life_expectancy = 90
         self.portfolio_total = portfolio_total
         self.investment_streams = investment_streams
-        self.stock_allocation = stock_allocation / 100
-        self.bond_allocation = bond_allocation / 100
         self.target_budget = target_budget
         self.monthly_benefits = monthly_benefits
         self.expected_return = expected_return
         self.inflation_rate = inflation_rate
-        self.stock_volatility = 0.16
-        self.bond_volatility = 0.05
-        self.correlation = -0.1
+        # Standard portfolio volatility replacing user-defined asset allocation
+        self.portfolio_volatility = 0.12 
         self.rng = np.random.default_rng(None)
         self.num_simulations = 10000
 
-    def generate_correlated_returns(self, num_simulations, num_years):
-        cov = [[self.stock_volatility**2, self.correlation * self.stock_volatility * self.bond_volatility],
-               [self.correlation * self.stock_volatility * self.bond_volatility, self.bond_volatility**2]]
-        random_returns = self.rng.multivariate_normal([self.expected_return, 0.04], cov, size=(num_simulations, num_years))
-        return random_returns[:, :, 0], random_returns[:, :, 1]
+    def generate_returns(self, num_simulations, num_years):
+        # Generate standard normal distribution of market returns
+        return self.rng.normal(self.expected_return, self.portfolio_volatility, size=(num_simulations, num_years))
 
     def calculate(self):
         years_until_retirement = self.age_retire - self.age_current
@@ -55,15 +49,14 @@ class EnhancedRetirementCalculator:
         
         total_yearly_investment = sum(stream.annual_contribution for stream in self.investment_streams)
 
-        # 1. Deterministic Path (For Table)
+        # 1. Deterministic Path (For Table & Income Chart)
         combined_table = []
         current_port = self.portfolio_total
-        portfolio_expected_return = (self.stock_allocation * self.expected_return) + (self.bond_allocation * 0.04)
 
         for year in range(years_until_retirement):
             beginning = current_port
             contribution = total_yearly_investment
-            interest = (beginning + contribution) * portfolio_expected_return
+            interest = (beginning + contribution) * self.expected_return
             current_port = beginning + contribution + interest
             
             combined_table.append({
@@ -76,8 +69,6 @@ class EnhancedRetirementCalculator:
                 'Ending_Balance': current_port
             })
 
-        future_portfolio_deterministic = current_port
-
         for year in range(retirement_years):
             beginning = current_port
             annual_benefit = self.monthly_benefits * 12 * ((1 + self.inflation_rate) ** (year + years_until_retirement))
@@ -89,7 +80,7 @@ class EnhancedRetirementCalculator:
                 interest = 0
                 current_port = 0
             else:
-                interest = (beginning - withdrawal) * portfolio_expected_return
+                interest = (beginning - withdrawal) * self.expected_return
                 current_port = beginning - withdrawal + interest
 
             combined_table.append({
@@ -102,20 +93,17 @@ class EnhancedRetirementCalculator:
                 'Ending_Balance': current_port
             })
 
-        # 2. Monte Carlo Simulation
-        stock_ret, bond_ret = self.generate_correlated_returns(self.num_simulations, years_until_retirement)
-        portfolio_returns = self.stock_allocation * stock_ret + self.bond_allocation * bond_ret
-        
+        # 2. Monte Carlo Simulation (For Chart & Probability)
+        portfolio_returns = self.generate_returns(self.num_simulations, years_until_retirement)
         portfolios = np.full((self.num_simulations, years_until_retirement + 1), self.portfolio_total, dtype=np.float64)
+        
         for year in range(years_until_retirement):
             portfolios[:, year + 1] = (portfolios[:, year] + total_yearly_investment) * (1 + portfolio_returns[:, year])
         
         future_portfolios = portfolios[:, -1]
         pre_retirement_median_path = np.median(portfolios, axis=0)
 
-        stock_ret_ret, bond_ret_ret = self.generate_correlated_returns(self.num_simulations, retirement_years)
-        portfolio_returns_ret = self.stock_allocation * stock_ret_ret + self.bond_allocation * bond_ret_ret
-        
+        portfolio_returns_ret = self.generate_returns(self.num_simulations, retirement_years)
         ret_portfolios = np.full((self.num_simulations, retirement_years + 1), 0.0, dtype=np.float64)
         ret_portfolios[:, 0] = future_portfolios
         
@@ -140,23 +128,50 @@ class EnhancedRetirementCalculator:
         }
 
     def generate_chart(self, results):
-        fig = Figure(figsize=(10, 5))
-        ax = fig.add_subplot(1, 1, 1)
+        # Create a larger figure to accommodate two charts
+        fig = Figure(figsize=(10, 10))
         
+        # --- Chart 1: Portfolio Growth ---
+        ax1 = fig.add_subplot(2, 1, 1)
         pre_ages = self.age_current + np.arange(len(results['pre_retirement_path']))
-        ax.plot(pre_ages, results['pre_retirement_path'], 'b-', linewidth=3, label='Accumulation Phase')
+        ax1.plot(pre_ages, results['pre_retirement_path'], 'b-', linewidth=3, label='Accumulation Phase')
         
         ret_ages = self.age_retire + np.arange(len(results['retirement_path']))
-        ax.plot(ret_ages, results['retirement_path'], 'g-', linewidth=3, label='Retirement Phase')
+        ax1.plot(ret_ages, results['retirement_path'], 'g-', linewidth=3, label='Retirement Phase')
         
-        ax.set_title('Median Portfolio Projection (Monte Carlo)', fontsize=14)
-        ax.set_xlabel('Age')
-        ax.set_ylabel('Portfolio Value ($)')
-        ax.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda x, p: f'${x/1000:.0f}K'))
-        ax.grid(True, alpha=0.3)
-        ax.legend()
+        ax1.set_title('Median Portfolio Projection (10,000 Monte Carlo Simulations)', fontsize=14, fontweight='bold')
+        ax1.set_xlabel('Age')
+        ax1.set_ylabel('Portfolio Value ($)')
+        ax1.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda x, p: f'${x/1000:.0f}K'))
+        ax1.grid(True, alpha=0.3)
+        ax1.legend()
+
+        # --- Chart 2: Income vs Expenses Breakdown ---
+        ax2 = fig.add_subplot(2, 1, 2)
+        table = results['combined_table']
+        ret_table = [r for r in table if r['Age'] >= self.age_retire]
         
-        fig.tight_layout()
+        if ret_table:
+            ages = [r['Age'] for r in ret_table]
+            withdrawals = [r['Withdrawals'] for r in ret_table]
+            
+            # Reconstruct the benefits and target budget for charting
+            years_until_ret = self.age_retire - self.age_current
+            benefits = [self.monthly_benefits * 12 * ((1 + self.inflation_rate)**(yr + years_until_ret)) for yr in range(len(ret_table))]
+            budgets = [self.target_budget * ((1 + self.inflation_rate)**(yr + years_until_ret)) for yr in range(len(ret_table))]
+            
+            ax2.bar(ages, benefits, label='Fixed Benefits (Pension/SSN)', color='#8ecae6')
+            ax2.bar(ages, withdrawals, bottom=benefits, label='Portfolio Withdrawals', color='#219ebc')
+            ax2.plot(ages, budgets, 'r--', linewidth=2, label='Target Inflation-Adjusted Budget')
+            
+            ax2.set_title('Funding Your Retirement: Income vs Target Budget', fontsize=14, fontweight='bold')
+            ax2.set_xlabel('Age')
+            ax2.set_ylabel('Annual Amount ($)')
+            ax2.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda x, p: f'${x/1000:.0f}K'))
+            ax2.grid(True, alpha=0.3)
+            ax2.legend()
+        
+        fig.tight_layout(pad=3.0)
         img = io.BytesIO()
         canvas = FigureCanvas(fig)
         canvas.print_png(img)
@@ -183,11 +198,9 @@ def calculate_gap():
     withdrawal_rate = 0.04
     years_to_retire = max(0, age_retire - age_current)
 
-    # 1. Target Income Calculation based on Monthly Budget
     target_income_today = monthly_budget * 12
     target_income_future = target_income_today * ((1 + inflation_rate) ** years_to_retire)
 
-    # 2. Projected Income
     future_portfolio = portfolio_total * ((1 + expected_return) ** years_to_retire)
     portfolio_income = future_portfolio * withdrawal_rate
     projected_income_future = portfolio_income + (monthly_benefits * 12)
@@ -195,22 +208,17 @@ def calculate_gap():
     shortfall = target_income_future - projected_income_future
     is_on_track = shortfall <= 0
 
-    # 3. Monte Carlo: Required Monthly Investment
     required_monthly_investment = 0
     if not is_on_track and years_to_retire > 0:
         target_additional_portfolio = shortfall / withdrawal_rate
         
         rng = np.random.default_rng(None)
         num_sims = 10000
-        stock_vol, bond_vol, corr = 0.16, 0.05, -0.1
-        cov = [[stock_vol**2, corr * stock_vol * bond_vol],
-               [corr * stock_vol * bond_vol, bond_vol**2]]
+        volatility = 0.12 # Standard portfolio volatility
         
-        # Generate returns for default 70/30 allocation to calculate the multiplier
-        random_returns = rng.multivariate_normal([expected_return, 0.04], cov, size=(num_sims, years_to_retire))
-        portfolio_returns = 0.7 * random_returns[:, :, 0] + 0.3 * random_returns[:, :, 1]
+        # Generate standard portfolio returns to find the required investment multiplier
+        portfolio_returns = rng.normal(expected_return, volatility, size=(num_sims, years_to_retire))
         
-                # Find the FV Multiplier of a $1 yearly investment
         current_bals = np.zeros(num_sims)
         for yr in range(years_to_retire):
             current_bals = (current_bals + 1.0) * (1 + portfolio_returns[:, yr])
@@ -218,8 +226,7 @@ def calculate_gap():
         median_multiplier = np.median(current_bals)
         if median_multiplier > 0:
             required_yearly = target_additional_portfolio / median_multiplier
-            # FIX: Wrap this in float() to make it JSON serializable
-            required_monthly_investment = float(required_yearly / 12) 
+            required_monthly_investment = float(required_yearly / 12)
 
     return jsonify({
         'success': True,
@@ -251,7 +258,6 @@ def calculate_advanced():
                 )
                 investment_streams.append(stream)
 
-        # Updated to translate monthly budget into the target annual budget
         target_budget_today = float(data['monthly_budget']) * 12
 
         calculator = EnhancedRetirementCalculator(
@@ -259,8 +265,6 @@ def calculate_advanced():
             age_retire=int(data['age_retire']),
             portfolio_total=float(data['portfolio_total']),
             investment_streams=investment_streams,
-            stock_allocation=float(data['stock_allocation']),
-            bond_allocation=float(data['bond_allocation']),
             target_budget=target_budget_today,
             monthly_benefits=float(data['monthly_benefits']),
             expected_return=float(data['expected_return']) / 100,
