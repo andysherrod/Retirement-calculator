@@ -53,15 +53,13 @@ class EnhancedRetirementCalculator:
         years_until_retirement = self.age_retire - self.age_current
         retirement_years = self.life_expectancy - self.age_retire
         
-        # Total annual contribution from all streams
         total_yearly_investment = sum(stream.annual_contribution for stream in self.investment_streams)
 
-        # --- 1. Deterministic Path (For the Year-by-Year Table) ---
+        # 1. Deterministic Path (For Table)
         combined_table = []
         current_port = self.portfolio_total
         portfolio_expected_return = (self.stock_allocation * self.expected_return) + (self.bond_allocation * 0.04)
 
-        # Pre-Retirement (Accumulation)
         for year in range(years_until_retirement):
             beginning = current_port
             contribution = total_yearly_investment
@@ -80,14 +78,12 @@ class EnhancedRetirementCalculator:
 
         future_portfolio_deterministic = current_port
 
-        # Retirement (Drawdown)
         for year in range(retirement_years):
             beginning = current_port
             annual_benefit = self.monthly_benefits * 12 * ((1 + self.inflation_rate) ** (year + years_until_retirement))
             annual_budget = self.target_budget * ((1 + self.inflation_rate) ** (year + years_until_retirement))
             withdrawal = max(0, annual_budget - annual_benefit)
             
-            # If portfolio is depleted
             if beginning - withdrawal < 0:
                 withdrawal = beginning
                 interest = 0
@@ -106,7 +102,7 @@ class EnhancedRetirementCalculator:
                 'Ending_Balance': current_port
             })
 
-        # --- 2. Monte Carlo Simulation (For Success Probability & Charts) ---
+        # 2. Monte Carlo Simulation
         stock_ret, bond_ret = self.generate_correlated_returns(self.num_simulations, years_until_retirement)
         portfolio_returns = self.stock_allocation * stock_ret + self.bond_allocation * bond_ret
         
@@ -140,8 +136,6 @@ class EnhancedRetirementCalculator:
             'success_rate': success_rate,
             'pre_retirement_path': pre_retirement_median_path,
             'retirement_path': retirement_median_path,
-            'years_until': years_until_retirement,
-            'retirement_years': retirement_years,
             'combined_table': combined_table
         }
 
@@ -179,26 +173,53 @@ def calculate_gap():
     name = data.get('name', 'User')
     age_current = int(data.get('age_current', 35))
     age_retire = int(data.get('age_retire', 65))
-    yearly_income = float(data.get('yearly_income', 100000))
+    monthly_budget = float(data.get('monthly_budget', 5000))
     portfolio_total = float(data.get('portfolio_total', 50000))
     monthly_benefits = float(data.get('monthly_benefits', 0))
     
-    # New Dynamic Inputs
     expected_return = float(data.get('expected_return', 7.0)) / 100
     inflation_rate = float(data.get('inflation_rate', 2.5)) / 100
 
-    replacement_ratio = 0.80
     withdrawal_rate = 0.04
     years_to_retire = max(0, age_retire - age_current)
 
-    target_income_today = yearly_income * replacement_ratio
+    # 1. Target Income Calculation based on Monthly Budget
+    target_income_today = monthly_budget * 12
     target_income_future = target_income_today * ((1 + inflation_rate) ** years_to_retire)
 
+    # 2. Projected Income
     future_portfolio = portfolio_total * ((1 + expected_return) ** years_to_retire)
     portfolio_income = future_portfolio * withdrawal_rate
     projected_income_future = portfolio_income + (monthly_benefits * 12)
 
     shortfall = target_income_future - projected_income_future
+    is_on_track = shortfall <= 0
+
+    # 3. Monte Carlo: Required Monthly Investment
+    required_monthly_investment = 0
+    if not is_on_track and years_to_retire > 0:
+        target_additional_portfolio = shortfall / withdrawal_rate
+        
+        rng = np.random.default_rng(None)
+        num_sims = 10000
+        stock_vol, bond_vol, corr = 0.16, 0.05, -0.1
+        cov = [[stock_vol**2, corr * stock_vol * bond_vol],
+               [corr * stock_vol * bond_vol, bond_vol**2]]
+        
+        # Generate returns for default 70/30 allocation to calculate the multiplier
+        random_returns = rng.multivariate_normal([expected_return, 0.04], cov, size=(num_sims, years_to_retire))
+        portfolio_returns = 0.7 * random_returns[:, :, 0] + 0.3 * random_returns[:, :, 1]
+        
+                # Find the FV Multiplier of a $1 yearly investment
+        current_bals = np.zeros(num_sims)
+        for yr in range(years_to_retire):
+            current_bals = (current_bals + 1.0) * (1 + portfolio_returns[:, yr])
+        
+        median_multiplier = np.median(current_bals)
+        if median_multiplier > 0:
+            required_yearly = target_additional_portfolio / median_multiplier
+            # FIX: Wrap this in float() to make it JSON serializable
+            required_monthly_investment = float(required_yearly / 12) 
 
     return jsonify({
         'success': True,
@@ -210,7 +231,8 @@ def calculate_gap():
             'projected_income_future': projected_income_future,
             'shortfall': max(0, shortfall),
             'surplus': abs(shortfall) if shortfall < 0 else 0,
-            'is_on_track': shortfall <= 0
+            'is_on_track': is_on_track,
+            'required_monthly_investment': required_monthly_investment
         }
     })
 
@@ -229,7 +251,8 @@ def calculate_advanced():
                 )
                 investment_streams.append(stream)
 
-        target_budget_today = float(data['yearly_income']) * 0.80
+        # Updated to translate monthly budget into the target annual budget
+        target_budget_today = float(data['monthly_budget']) * 12
 
         calculator = EnhancedRetirementCalculator(
             age_current=int(data['age_current']),
