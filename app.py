@@ -34,13 +34,11 @@ class EnhancedRetirementCalculator:
         self.monthly_benefits = monthly_benefits
         self.expected_return = expected_return
         self.inflation_rate = inflation_rate
-        # Standard portfolio volatility replacing user-defined asset allocation
         self.portfolio_volatility = 0.12 
         self.rng = np.random.default_rng(None)
         self.num_simulations = 10000
 
     def generate_returns(self, num_simulations, num_years):
-        # Generate standard normal distribution of market returns
         return self.rng.normal(self.expected_return, self.portfolio_volatility, size=(num_simulations, num_years))
 
     def calculate(self):
@@ -68,6 +66,18 @@ class EnhancedRetirementCalculator:
                 'Withdrawals': 0.0,
                 'Ending_Balance': current_port
             })
+
+        future_portfolio_deterministic = current_port
+
+        # --- NEW: Calculate Initial Withdrawal Rate ---
+        first_year_budget = self.target_budget * ((1 + self.inflation_rate) ** years_until_retirement)
+        first_year_benefit = self.monthly_benefits * 12 * ((1 + self.inflation_rate) ** years_until_retirement)
+        initial_withdrawal = max(0, first_year_budget - first_year_benefit)
+        
+        if future_portfolio_deterministic > 0:
+            initial_withdrawal_rate = (initial_withdrawal / future_portfolio_deterministic) * 100
+        else:
+            initial_withdrawal_rate = float('inf') if initial_withdrawal > 0 else 0.0
 
         for year in range(retirement_years):
             beginning = current_port
@@ -124,11 +134,11 @@ class EnhancedRetirementCalculator:
             'success_rate': success_rate,
             'pre_retirement_path': pre_retirement_median_path,
             'retirement_path': retirement_median_path,
-            'combined_table': combined_table
+            'combined_table': combined_table,
+            'initial_withdrawal_rate': initial_withdrawal_rate
         }
 
     def generate_chart(self, results):
-        # Create a larger figure to accommodate two charts
         fig = Figure(figsize=(10, 10))
         
         # --- Chart 1: Portfolio Growth ---
@@ -155,7 +165,6 @@ class EnhancedRetirementCalculator:
             ages = [r['Age'] for r in ret_table]
             withdrawals = [r['Withdrawals'] for r in ret_table]
             
-            # Reconstruct the benefits and target budget for charting
             years_until_ret = self.age_retire - self.age_current
             benefits = [self.monthly_benefits * 12 * ((1 + self.inflation_rate)**(yr + years_until_ret)) for yr in range(len(ret_table))]
             budgets = [self.target_budget * ((1 + self.inflation_rate)**(yr + years_until_ret)) for yr in range(len(ret_table))]
@@ -214,9 +223,8 @@ def calculate_gap():
         
         rng = np.random.default_rng(None)
         num_sims = 10000
-        volatility = 0.12 # Standard portfolio volatility
+        volatility = 0.12 
         
-        # Generate standard portfolio returns to find the required investment multiplier
         portfolio_returns = rng.normal(expected_return, volatility, size=(num_sims, years_to_retire))
         
         current_bals = np.zeros(num_sims)
@@ -279,7 +287,8 @@ def calculate_advanced():
             'results': {
                 'success_probability': f"{results['success_rate']:.1f}%",
                 'chart': chart,
-                'combined_table': results['combined_table']
+                'combined_table': results['combined_table'],
+                'initial_withdrawal_rate': results['initial_withdrawal_rate']
             }
         })
     except Exception as e:

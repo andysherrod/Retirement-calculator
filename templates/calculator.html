@@ -36,7 +36,7 @@
         .add-stream-btn { background: #28a745; color: white; border: none; padding: 12px; border-radius: 8px; cursor: pointer; width: 100%; font-weight: bold; margin-bottom: 20px;}
         
         /* Summary Explanations */
-        .assumptions-box { background: #f8f9fa; padding: 15px; border-radius: 10px; margin-bottom: 20px; display: flex; justify-content: space-around; flex-wrap: wrap; gap: 10px; border: 1px solid #e9ecef; }
+        .assumptions-box { background: #f8f9fa; padding: 15px; border-radius: 10px; margin-bottom: 20px; display: flex; justify-content: space-around; flex-wrap: wrap; gap: 15px; border: 1px solid #e9ecef; }
         .assumptions-box div { font-size: 0.95em; color: #2c3e50; }
         .explanation-box { background: #eef2ff; padding: 20px; border-radius: 10px; margin-bottom: 20px; font-size: 0.95em; color: #444; line-height: 1.6; border-left: 4px solid #667eea; }
         
@@ -137,7 +137,8 @@
         <div id="step4" style="display: none;">
             <div class="header-text">
                 <h1>Your Personalized Plan</h1>
-                <p id="final-probability" style="font-weight:bold; font-size:1.4em; color: #28a745; margin-top: 5px;"></p>
+                <p id="final-probability" style="font-weight:bold; font-size:1.4em; margin-top: 5px;"></p>
+                <p id="probability-context" style="font-size:0.95em; margin-top: 8px; color: #666;"></p>
             </div>
             
             <div class="assumptions-box">
@@ -145,6 +146,7 @@
                 <div><strong>Target Budget (Today):</strong> <span id="sum-budget"></span>/yr</div>
                 <div><strong>Expected Return:</strong> <span id="sum-return"></span></div>
                 <div><strong>Inflation:</strong> <span id="sum-inflation"></span></div>
+                <div><strong>Initial Withdrawal Rate:</strong> <span id="sum-withdrawal-rate" style="font-weight:bold;"></span></div>
             </div>
 
             <div class="explanation-box">
@@ -259,11 +261,10 @@
                     alertBox.innerHTML = `You have an estimated shortfall of <strong>${currency.format(result.data.shortfall)} per year</strong>.`;
                 }
                 
-                // Prep for Phase 3: Display the required yearly investment in the banner
+                // Prep for Phase 3
                 const yearlyNeeded = result.data.required_monthly_investment * 12;
                 document.getElementById('target-yearly-investment-display').innerText = currency.format(yearlyNeeded);
                 
-                // Add an initial empty stream if none exist
                 const container = document.getElementById('investment-streams-container');
                 if (container.children.length === 0) {
                     addInvestmentStream();
@@ -285,13 +286,46 @@
             document.getElementById('loadingMessage').classList.remove('show');
 
             if (result.success) {
-                // Populate Assumptions Bar
                 document.getElementById('sum-retire').innerText = "Age " + baseData.age_retire;
                 document.getElementById('sum-budget').innerText = currency.format(baseData.monthly_budget * 12);
                 document.getElementById('sum-return').innerText = baseData.expected_return + "%";
                 document.getElementById('sum-inflation').innerText = baseData.inflation_rate + "%";
 
-                document.getElementById('final-probability').innerText = `Simulation Success Rate: ${result.results.success_probability}`;
+                // Probability Formatting
+                const probString = result.results.success_probability; 
+                const probFloat = parseFloat(probString);
+                const probEl = document.getElementById('final-probability');
+                const contextEl = document.getElementById('probability-context');
+                probEl.innerText = `Simulation Success Rate: ${probString}`;
+
+                if (probFloat >= 80) {
+                    probEl.style.color = '#28a745';
+                    contextEl.innerText = 'Excellent! You are in the "sweet spot" for a highly secure retirement.';
+                } else if (probFloat >= 60) {
+                    probEl.style.color = '#f39c12';
+                    contextEl.innerText = 'Caution. You are slightly below the ideal 80% target and may need to adjust spending during market downturns.';
+                } else {
+                    probEl.style.color = '#dc3545';
+                    contextEl.innerText = 'Warning. Consider increasing your savings target or adjusting your retirement timeline to build a safer buffer.';
+                }
+
+                // Withdrawal Rate Formatting
+                const wrFloat = result.results.initial_withdrawal_rate;
+                const wrEl = document.getElementById('sum-withdrawal-rate');
+                if (!isFinite(wrFloat) || wrFloat > 999) {
+                    wrEl.innerText = "N/A (Depleted)";
+                    wrEl.style.color = "#dc3545";
+                } else {
+                    wrEl.innerText = wrFloat.toFixed(1) + "%";
+                    if (wrFloat <= 4.0) {
+                        wrEl.style.color = '#28a745'; // Green
+                    } else if (wrFloat <= 5.5) {
+                        wrEl.style.color = '#f39c12'; // Yellow
+                    } else {
+                        wrEl.style.color = '#dc3545'; // Red
+                    }
+                }
+
                 document.getElementById('finalChart').src = 'data:image/png;base64,' + result.results.chart;
                 document.getElementById('finalChart').style.display = 'block';
                 fullTableData = result.results.combined_table;
