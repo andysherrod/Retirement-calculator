@@ -285,9 +285,7 @@
                 const container = document.getElementById('investment-streams-container');
                 if (container.children.length === 0) {
                     addInvestmentStream();
-                    if (!result.data.is_on_track && result.data.required_monthly_investment > 0) {
-                        document.querySelector('.stream-contribution').value = Math.round(yearlyNeeded);
-                    }
+                    // AUTO-FILL LOGIC REMOVED HERE
                 }
                 
                 goToStep('step2');
@@ -315,6 +313,7 @@
                 const probFloat = parseFloat(probString);
                 const probEl = document.getElementById('final-probability');
                 const contextEl = document.getElementById('probability-context');
+                
                 probEl.innerText = `Simulation Success Rate: ${probString}`;
 
                 if (probFloat >= 80) {
@@ -322,7 +321,8 @@
                     contextEl.innerText = 'Excellent! You are in the "sweet spot" for a highly secure retirement.';
                 } else if (probFloat >= 60) {
                     probEl.style.color = '#f39c12';
-                    context.innerText = 'Caution. You are slightly below the ideal 80% target and may need to adjust spending during market downturns.';
+                    // TYPO FIXED HERE: was context.innerText
+                    contextEl.innerText = 'Caution. You are slightly below the ideal 80% target and may need to adjust spending during market downturns.';
                 } else {
                     probEl.style.color = '#dc3545';
                     contextEl.innerText = 'Warning. Consider increasing your savings target or adjusting your retirement timeline to build a safer buffer.';
