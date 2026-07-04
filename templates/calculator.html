@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Retirement Gap Analysis</title>
+    <title>Retirement Strategy Optimizer</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -16,163 +16,100 @@
             padding: 20px;
         }
         .container {
-            background: white;
-            max-width: 800px;
-            width: 100%;
-            border-radius: 20px;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.2);
-            overflow: hidden;
-            padding: 40px;
-            transition: all 0.3s ease;
+            background: white; max-width: 900px; width: 100%; border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.2); overflow: hidden; padding: 40px;
+            max-height: 95vh; overflow-y: auto;
         }
-        .header-text {
-            text-align: center;
-            margin-bottom: 30px;
-            color: #2c3e50;
-        }
+        .header-text { text-align: center; margin-bottom: 30px; color: #2c3e50; }
         .header-text h1 { font-size: 2.2em; margin-bottom: 10px; }
         .header-text p { color: #666; font-size: 1.1em; }
         
-        .form-row {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px;
-            margin-bottom: 20px;
+        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+        .form-group label { display: block; margin-bottom: 8px; font-weight: 600; color: #2c3e50; }
+        input, select {
+            width: 100%; padding: 12px 15px; border: 2px solid #e9ecef;
+            border-radius: 10px; font-size: 16px; transition: border-color 0.3s ease;
         }
-        .form-group label {
-            display: block;
-            margin-bottom: 8px;
-            font-weight: 600;
-            color: #2c3e50;
-        }
-        input {
-            width: 100%;
-            padding: 12px 15px;
-            border: 2px solid #e9ecef;
-            border-radius: 10px;
-            font-size: 16px;
-            transition: border-color 0.3s ease;
-        }
-        input:focus {
-            outline: none;
-            border-color: #667eea;
-        }
+        input:focus, select:focus { outline: none; border-color: #667eea; }
         
         .primary-btn {
-            width: 100%;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            padding: 15px;
-            border-radius: 10px;
-            font-size: 18px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: transform 0.2s ease;
-            margin-top: 10px;
+            width: 100%; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white; border: none; padding: 15px; border-radius: 10px;
+            font-size: 18px; font-weight: 600; cursor: pointer; margin-top: 10px;
         }
-        .primary-btn:hover { transform: translateY(-2px); }
         .secondary-btn {
-            width: 100%;
-            background: #f8f9fa;
-            color: #2c3e50;
-            border: 2px solid #e9ecef;
-            padding: 15px;
-            border-radius: 10px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            margin-top: 15px;
+            width: 100%; background: #f8f9fa; color: #2c3e50; border: 2px solid #e9ecef;
+            padding: 15px; border-radius: 10px; font-size: 16px; font-weight: 600;
+            cursor: pointer; margin-top: 15px;
         }
 
-        /* Results Screen Specifics */
-        .results-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px;
-            margin: 30px 0;
-        }
-        .result-card {
-            background: #f8f9fa;
-            padding: 25px;
-            border-radius: 15px;
-            text-align: center;
-            border-top: 5px solid #667eea;
-        }
+        /* Gap Results */
+        .results-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 30px 0; }
+        .result-card { background: #f8f9fa; padding: 25px; border-radius: 15px; text-align: center; border-top: 5px solid #667eea; }
         .result-card h3 { color: #666; font-size: 1.1em; margin-bottom: 10px; }
         .result-card .amount { font-size: 2em; font-weight: bold; color: #2c3e50; }
-        
-        .gap-alert {
-            padding: 20px;
-            border-radius: 10px;
-            text-align: center;
-            font-size: 1.2em;
-            margin-bottom: 30px;
-        }
+        .gap-alert { padding: 20px; border-radius: 10px; text-align: center; font-size: 1.2em; margin-bottom: 30px; }
         .gap-alert.warning { background: #fff3cd; color: #856404; border: 1px solid #ffeeba; }
         .gap-alert.success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
 
-        @media (max-width: 600px) {
-            .form-row, .results-grid { grid-template-columns: 1fr; }
-        }
+        /* Sliders & Streams */
+        .slider-group { margin-bottom: 20px; }
+        .slider-group input[type="range"] { width: 100%; margin-top: 10px; }
+        .investment-stream { background: #f8f9ff; padding: 15px; border-radius: 10px; margin: 15px 0; border-left: 4px solid #667eea; }
+        .stream-header { display: flex; justify-content: space-between; margin-bottom: 10px; }
+        .remove-stream { background: #dc3545; color: white; border: none; padding: 5px 10px; border-radius: 5px; cursor: pointer; font-size: 12px; }
+        .add-stream-btn { background: #28a745; color: white; border: none; padding: 12px; border-radius: 8px; cursor: pointer; width: 100%; font-weight: bold; margin-bottom: 20px;}
+
+        /* Tables & Charts */
+        #finalChart { max-width: 100%; border-radius: 10px; margin-top: 20px; display: none; }
+        .detail-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 20px; }
+        .detail-table th { background: #f8f9fa; padding: 10px; text-align: left; border-bottom: 2px solid #e9ecef; }
+        .detail-table td { padding: 10px; border-bottom: 1px solid #e9ecef; }
+        .detail-table tr:nth-child(even) { background: #fbfdff; }
+        .loading { display: none; text-align: center; padding: 20px; }
+        .loading.show { display: block; }
     </style>
 </head>
 <body>
 
     <div class="container">
         
-        <!-- PHASE 1: The Input Form -->
+        <!-- PHASE 1: Simple Form -->
         <div id="step1">
             <div class="header-text">
                 <h1>Let's map out your future.</h1>
-                <p>Answer a few quick questions to see if you are on track for retirement.</p>
+                <p>Answer a few quick questions to see if you are on track.</p>
             </div>
-
             <form id="gapForm">
                 <div class="form-row">
-                    <div class="form-group">
-                        <label>First Name</label>
-                        <input type="text" id="name" required placeholder="e.g. Sarah">
-                    </div>
-                    <div class="form-group">
-                        <label>Current Yearly Income ($)</label>
-                        <input type="number" id="yearly_income" required placeholder="100000">
-                    </div>
+                    <div class="form-group"><label>First Name</label><input type="text" id="name" required placeholder="e.g. Sarah"></div>
+                    <div class="form-group"><label>Current Yearly Income ($)</label><input type="number" id="yearly_income" required value="100000"></div>
                 </div>
-
                 <div class="form-row">
-                    <div class="form-group">
-                        <label>Current Age</label>
-                        <input type="number" id="age_current" required placeholder="35">
-                    </div>
-                    <div class="form-group">
-                        <label>Target Retirement Age</label>
-                        <input type="number" id="age_retire" required placeholder="65">
-                    </div>
+                    <div class="form-group"><label>Current Age</label><input type="number" id="age_current" required value="35"></div>
+                    <div class="form-group"><label>Target Retirement Age</label><input type="number" id="age_retire" required value="65"></div>
                 </div>
-
                 <div class="form-row">
-                    <div class="form-group">
-                        <label>Current Savings / Portfolio ($)</label>
-                        <input type="number" id="portfolio_total" required placeholder="50000">
-                    </div>
-                    <div class="form-group">
-                        <label>Expected Monthly Benefits ($)</label>
-                        <input type="number" id="monthly_benefits" required placeholder="2000">
-                    </div>
+                    <div class="form-group"><label>Current Savings ($)</label><input type="number" id="portfolio_total" required value="50000"></div>
+                    <div class="form-group"><label>Expected Monthly Benefits ($)</label><input type="number" id="monthly_benefits" required value="2000"></div>
+                </div>
+                
+                <h3 style="margin: 20px 0 10px; color: #2c3e50; font-size: 1.1em; border-bottom: 2px solid #e9ecef; padding-bottom: 5px;">Market Assumptions</h3>
+                <div class="form-row">
+                    <div class="form-group"><label>Expected Rate of Return (%)</label><input type="number" step="0.1" id="expected_return" required value="7.0"></div>
+                    <div class="form-group"><label>Inflation Rate (%)</label><input type="number" step="0.1" id="inflation_rate" required value="2.5"></div>
                 </div>
 
                 <button type="submit" class="primary-btn">Calculate My Outlook</button>
             </form>
         </div>
 
-        <!-- PHASE 2: The Results Reveal -->
+        <!-- PHASE 2: Gap Reveal -->
         <div id="step2" style="display: none;">
             <div class="header-text">
                 <h1 id="greeting">Here is your outlook.</h1>
-                <p>Based on inflation and projected market returns by age <span id="display-age"></span>.</p>
+                <p id="assumptions-text" style="font-size: 0.9em; color: #666;"></p>
             </div>
-
             <div class="results-grid">
                 <div class="result-card">
                     <h3>Target Annual Income</h3>
@@ -183,85 +120,239 @@
                     <div class="amount" id="projected-income">$0</div>
                 </div>
             </div>
+            <div id="gap-message" class="gap-alert warning"></div>
+            <button class="primary-btn" onclick="showOptimizer()">Optimize My Strategy</button>
+            <button class="secondary-btn" onclick="goToStep('step1')">Change Assumptions</button>
+        </div>
 
-            <div id="gap-message" class="gap-alert warning">
-                <!-- Javascript will inject the shortfall/surplus message here -->
+        <!-- PHASE 3: The Optimizer -->
+        <div id="step3" style="display: none;">
+            <div class="header-text">
+                <h1>Optimize Your Portfolio</h1>
+                <p>Adjust your asset allocation and add investment streams to close the gap.</p>
+            </div>
+            
+            <div class="form-row">
+                <div class="slider-group">
+                    <label>Stock Allocation: <span id="stock-val">70</span>%</label>
+                    <input type="range" id="stock_allocation" min="0" max="100" value="70" oninput="updateAllocation('stock')">
+                </div>
+                <div class="slider-group">
+                    <label>Bond Allocation: <span id="bond-val">30</span>%</label>
+                    <input type="range" id="bond_allocation" min="0" max="100" value="30" oninput="updateAllocation('bond')">
+                </div>
             </div>
 
-            <button class="primary-btn" onclick="alert('Advanced tools coming soon!')">Optimize My Strategy</button>
-            <button class="secondary-btn" onclick="goBack()">Recalculate</button>
+            <h3 style="margin: 20px 0 10px; color: #2c3e50; border-bottom: 2px solid #e9ecef; padding-bottom: 5px;">Investment Streams</h3>
+            <div id="investment-streams-container"></div>
+            <button type="button" class="add-stream-btn" onclick="addInvestmentStream()">+ Add Investment Stream</button>
+
+            <button class="primary-btn" onclick="runAdvancedSimulation()">Run Advanced Simulation</button>
+            <button class="secondary-btn" onclick="goToStep('step2')">Back</button>
+            
+            <div class="loading" id="loadingMessage">Running 10,000 Monte Carlo Simulations...</div>
+        </div>
+
+        <!-- PHASE 4: Final Results -->
+        <div id="step4" style="display: none;">
+            <div class="header-text">
+                <h1>Your Optimized Plan</h1>
+                <p id="final-probability" style="font-weight:bold; font-size:1.2em; color: #28a745;"></p>
+            </div>
+            
+            <img id="finalChart" src="" alt="Monte Carlo Analysis Chart" style="width: 100%; margin-bottom: 30px;">
+            
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h3 style="color: #2c3e50;">Year-by-Year Details</h3>
+                <button class="secondary-btn" style="width: auto; margin: 0; padding: 8px 15px;" onclick="toggleTableLength()" id="toggleTableBtn">Show All Rows</button>
+            </div>
+            
+            <div id="table-container" style="max-height: 400px; overflow-y: auto; border: 1px solid #e9ecef; border-radius: 10px; margin-top: 15px;">
+                <!-- Table injected via JS -->
+            </div>
+
+            <button class="secondary-btn" style="margin-top: 30px;" onclick="goToStep('step3')">Adjust Strategy</button>
         </div>
 
     </div>
 
     <script>
-        // Formatter to turn 167805.40 into $167,805
-        const currency = new Intl.NumberFormat('en-US', {
-            style: 'currency',
-            currency: 'USD',
-            maximumFractionDigits: 0
-        });
+        const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+        let baseData = {};
+        let streamCounter = 0;
+        let fullTableData = [];
+        let showingAllRows = false;
 
+        function goToStep(stepId) {
+            ['step1', 'step2', 'step3', 'step4'].forEach(id => {
+                document.getElementById(id).style.display = (id === stepId) ? 'block' : 'none';
+            });
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        // --- Investment Streams Logic ---
+        function addInvestmentStream() {
+            streamCounter++;
+            const container = document.getElementById('investment-streams-container');
+            const div = document.createElement('div');
+            div.className = 'investment-stream';
+            div.id = `stream-${streamCounter}`;
+            div.innerHTML = `
+                <div class="stream-header">
+                    <input type="text" placeholder="Account Name (e.g. Roth IRA)" class="stream-name" style="border:none; background:transparent; font-weight:bold; width: 70%;">
+                    <button type="button" class="remove-stream" onclick="document.getElementById('stream-${streamCounter}').remove()">Remove</button>
+                </div>
+                <div class="form-row" style="margin-bottom:0;">
+                    <div class="form-group" style="margin-bottom:0;">
+                        <label style="font-size: 0.85em;">Yearly Contribution ($)</label>
+                        <input type="number" class="stream-contribution" value="6500">
+                    </div>
+                    <div class="form-group" style="margin-bottom:0;">
+                        <label style="font-size: 0.85em;">Tax Treatment</label>
+                        <select class="stream-tax">
+                            <option value="roth">Roth (Tax-Free)</option>
+                            <option value="traditional">Traditional (Tax-Deferred)</option>
+                            <option value="taxable">Taxable</option>
+                        </select>
+                    </div>
+                </div>
+            `;
+            container.appendChild(div);
+        }
+
+        function collectStreams() {
+            const streams = [];
+            document.querySelectorAll('.investment-stream').forEach(stream => {
+                streams.push({
+                    name: stream.querySelector('.stream-name').value || 'Unnamed Account',
+                    annual_contribution: parseFloat(stream.querySelector('.stream-contribution').value) || 0,
+                    tax_treatment: stream.querySelector('.stream-tax').value
+                });
+            });
+            return streams;
+        }
+
+        // --- Asset Allocation Logic ---
+        function updateAllocation(source) {
+            const stockSlider = document.getElementById('stock_allocation');
+            const bondSlider = document.getElementById('bond_allocation');
+            if(source === 'stock') bondSlider.value = 100 - stockSlider.value;
+            if(source === 'bond') stockSlider.value = 100 - bondSlider.value;
+            document.getElementById('stock-val').innerText = stockSlider.value;
+            document.getElementById('bond-val').innerText = bondSlider.value;
+        }
+
+        // --- Phase 1 to 2 ---
         document.getElementById('gapForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-            
-            // Gather data
-            const data = {
+            baseData = {
                 name: document.getElementById('name').value,
                 yearly_income: parseFloat(document.getElementById('yearly_income').value),
                 age_current: parseInt(document.getElementById('age_current').value),
                 age_retire: parseInt(document.getElementById('age_retire').value),
                 portfolio_total: parseFloat(document.getElementById('portfolio_total').value),
-                monthly_benefits: parseFloat(document.getElementById('monthly_benefits').value)
+                monthly_benefits: parseFloat(document.getElementById('monthly_benefits').value),
+                expected_return: parseFloat(document.getElementById('expected_return').value),
+                inflation_rate: parseFloat(document.getElementById('inflation_rate').value)
             };
 
-            try {
-                // Send to Flask backend
-                const response = await fetch('/calculate_gap', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(data)
-                });
+            const response = await fetch('/calculate_gap', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(baseData)
+            });
+            const result = await response.json();
+            
+            if (result.success) {
+                document.getElementById('greeting').innerText = `${result.data.name}, here is your outlook.`;
+                document.getElementById('assumptions-text').innerText = `Based on a ${result.data.expected_return}% expected return and ${result.data.inflation_rate}% inflation.`;
                 
-                const result = await response.json();
-                
-                if (result.success) {
-                    displayResults(result.data);
+                document.getElementById('target-income').innerText = currency.format(result.data.target_income_future);
+                document.getElementById('projected-income').innerText = currency.format(result.data.projected_income_future);
+
+                const alertBox = document.getElementById('gap-message');
+                if (result.data.is_on_track) {
+                    alertBox.className = 'gap-alert success';
+                    alertBox.innerHTML = `Great news! You have a projected surplus of <strong>${currency.format(result.data.surplus)} per year</strong>.`;
                 } else {
-                    alert(result.error);
+                    alertBox.className = 'gap-alert warning';
+                    alertBox.innerHTML = `You have an estimated shortfall of <strong>${currency.format(result.data.shortfall)} per year</strong>. Let's close the gap.`;
                 }
-            } catch (err) {
-                alert("Error connecting to the server.");
+                
+                // Add an initial empty stream if none exist
+                if(document.querySelectorAll('.investment-stream').length === 0) addInvestmentStream();
+                
+                goToStep('step2');
             }
         });
 
-        function displayResults(data) {
-            // Update Text
-            document.getElementById('greeting').innerText = `${data.name}, here is your outlook.`;
-            document.getElementById('display-age').innerText = document.getElementById('age_retire').value;
+        function showOptimizer() { goToStep('step3'); }
+
+        // --- Phase 3 to 4 ---
+        async function runAdvancedSimulation() {
+            document.getElementById('loadingMessage').classList.add('show');
             
-            // Update Numbers
-            document.getElementById('target-income').innerText = currency.format(data.target_income_future);
-            document.getElementById('projected-income').innerText = currency.format(data.projected_income_future);
+            const advancedData = {
+                ...baseData,
+                investment_streams: collectStreams(),
+                stock_allocation: parseFloat(document.getElementById('stock_allocation').value),
+                bond_allocation: parseFloat(document.getElementById('bond_allocation').value)
+            };
 
-            // Update Gap Alert Box
-            const alertBox = document.getElementById('gap-message');
-            if (data.is_on_track) {
-                alertBox.className = 'gap-alert success';
-                alertBox.innerHTML = `Great news! You have an estimated surplus of <strong>${currency.format(data.surplus)} per year</strong>.`;
+            const response = await fetch('/calculate_advanced', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(advancedData)
+            });
+            const result = await response.json();
+
+            document.getElementById('loadingMessage').classList.remove('show');
+
+            if (result.success) {
+                document.getElementById('final-probability').innerText = `Success Probability: ${result.results.success_probability}`;
+                
+                const chartImg = document.getElementById('finalChart');
+                chartImg.src = 'data:image/png;base64,' + result.results.chart;
+                chartImg.style.display = 'block';
+
+                // Render Table
+                fullTableData = result.results.combined_table;
+                showingAllRows = false;
+                renderTable();
+
+                goToStep('step4');
             } else {
-                alertBox.className = 'gap-alert warning';
-                alertBox.innerHTML = `You have an estimated shortfall of <strong>${currency.format(data.shortfall)} per year</strong>. Let's optimize your strategy to close the gap.`;
+                alert("Simulation Error: " + result.error);
             }
-
-            // Transition UI
-            document.getElementById('step1').style.display = 'none';
-            document.getElementById('step2').style.display = 'block';
         }
 
-        function goBack() {
-            document.getElementById('step2').style.display = 'none';
-            document.getElementById('step1').style.display = 'block';
+        // --- Table Rendering Logic ---
+        function renderTable() {
+            const container = document.getElementById('table-container');
+            const btn = document.getElementById('toggleTableBtn');
+            const dataToRender = showingAllRows ? fullTableData : fullTableData.slice(0, 10);
+            
+            btn.innerText = showingAllRows ? "Show 10 Rows" : "Show All Rows";
+
+            let html = '<table class="detail-table"><thead><tr>' +
+                '<th>Age</th><th>Beginning Balance</th><th>Contributions</th><th>Interest</th><th>Withdrawals</th><th>Ending Balance</th>' +
+                '</tr></thead><tbody>';
+
+            dataToRender.forEach(row => {
+                html += `<tr>
+                    <td>${row.Age}</td>
+                    <td>${currency.format(row.Investment_Amount)}</td>
+                    <td style="color: green;">+${currency.format(row.Contributions)}</td>
+                    <td style="color: blue;">+${currency.format(row.Interest_Earned)}</td>
+                    <td style="color: red;">-${currency.format(row.Withdrawals)}</td>
+                    <td style="font-weight: bold;">${currency.format(row.Ending_Balance)}</td>
+                </tr>`;
+            });
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+
+        function toggleTableLength() {
+            showingAllRows = !showingAllRows;
+            renderTable();
         }
     </script>
 </body>
