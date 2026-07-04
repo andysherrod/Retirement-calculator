@@ -1,5 +1,4 @@
 from flask import Flask, render_template, request, jsonify
-import pandas as pd
 import numpy as np
 import matplotlib
 matplotlib.use('Agg')
@@ -20,20 +19,52 @@ app = Flask(__name__)
 class InvestmentStream:
     name: str
     annual_contribution: float
-    tax_treatment: str
+    tax_treatment: str  # 'traditional', 'roth', 'taxable'
+
+def calculate_effective_tax(target_budget, filing_status='married'):
+    # 2024/2025 US Tax Brackets & Standard Deductions Proxy
+    if filing_status == 'single':
+        std_deduction = 14600
+        brackets = [(11600, 0.10), (47150, 0.12), (100525, 0.22), (191950, 0.24), (243725, 0.32), (609350, 0.35), (float('inf'), 0.37)]
+    else: # married
+        std_deduction = 29200
+        brackets = [(23200, 0.10), (94300, 0.12), (201050, 0.22), (383900, 0.24), (487450, 0.32), (731200, 0.35), (float('inf'), 0.37)]
+
+    taxable_income = max(0, target_budget - std_deduction)
+    if taxable_income <= 0: return 0.0
+
+    total_tax = 0
+    prev_limit = 0
+    for limit, rate in brackets:
+        if taxable_income > prev_limit:
+            taxed_amt = min(taxable_income, limit) - prev_limit
+            total_tax += taxed_amt * rate
+            prev_limit = limit
+        else:
+            break
+            
+    return total_tax / target_budget
 
 class EnhancedRetirementCalculator:
-    def __init__(self, age_current, age_retire, portfolio_total, investment_streams, 
-                 target_budget, monthly_benefits, expected_return, inflation_rate):
+    def __init__(self, age_current, age_retire, trad_start, roth_start, tax_start, 
+                 investment_streams, target_budget, monthly_benefits, expected_return, 
+                 inflation_rate, effective_tax_rate):
         self.age_current = age_current
         self.age_retire = age_retire
         self.life_expectancy = 90
-        self.portfolio_total = portfolio_total
+        
+        self.trad_start = trad_start
+        self.roth_start = roth_start
+        self.tax_start = tax_start
+        self.total_start = trad_start + roth_start + tax_start
+        
         self.investment_streams = investment_streams
         self.target_budget = target_budget
         self.monthly_benefits = monthly_benefits
         self.expected_return = expected_return
         self.inflation_rate = inflation_rate
+        self.effective_tax_rate = effective_tax_rate
+        
         self.portfolio_volatility = 0.12 
         self.rng = np.random.default_rng(None)
         self.num_simulations = 10000
@@ -42,93 +73,165 @@ class EnhancedRetirementCalculator:
         return self.rng.normal(self.expected_return, self.portfolio_volatility, size=(num_simulations, num_years))
 
     def calculate(self):
-        years_until_retirement = self.age_retire - self.age_current
+        years_to_retire = self.age_retire - self.age_current
         retirement_years = self.life_expectancy - self.age_retire
         
-        total_yearly_investment = sum(stream.annual_contribution for stream in self.investment_streams)
+        trad_contr = sum(s.annual_contribution for s in self.investment_streams if s.tax_treatment == 'traditional')
+        roth_contr = sum(s.annual_contribution for s in self.investment_streams if s.tax_treatment == 'roth')
+        tax_contr = sum(s.annual_contribution for s in self.investment_streams if s.tax_treatment == 'taxable')
+        total_contr = trad_contr + roth_contr + tax_contr
 
-        # 1. Deterministic Path (For Table & Income Chart)
+        # --- 1. Deterministic Path (For Table) ---
         combined_table = []
-        current_port = self.portfolio_total
+        cur_trad, cur_roth, cur_tax = self.trad_start, self.roth_start, self.tax_start
 
-        for year in range(years_until_retirement):
-            beginning = current_port
-            contribution = total_yearly_investment
-            interest = (beginning + contribution) * self.expected_return
-            current_port = beginning + contribution + interest
+        # Accumulation
+        for year in range(years_to_retire):
+            beginning = cur_trad + cur_roth + cur_tax
+            
+            int_trad = (cur_trad + trad_contr) * self.expected_return
+            int_roth = (cur_roth + roth_contr) * self.expected_return
+            int_tax = (cur_tax + tax_contr) * self.expected_return
+            
+            cur_trad += trad_contr + int_trad
+            cur_roth += roth_contr + int_roth
+            cur_tax += tax_contr + int_tax
             
             combined_table.append({
                 'Year': year,
                 'Age': self.age_current + year,
                 'Investment_Amount': beginning,
-                'Contributions': contribution,
-                'Interest_Earned': interest,
+                'Contributions': total_contr,
+                'Interest_Earned': int_trad + int_roth + int_tax,
                 'Withdrawals': 0.0,
-                'Ending_Balance': current_port
+                'Ending_Balance': cur_trad + cur_roth + cur_tax
             })
 
-        future_portfolio_deterministic = current_port
-
-        # --- NEW: Calculate Initial Withdrawal Rate ---
-        first_year_budget = self.target_budget * ((1 + self.inflation_rate) ** years_until_retirement)
-        first_year_benefit = self.monthly_benefits * 12 * ((1 + self.inflation_rate) ** years_until_retirement)
-        initial_withdrawal = max(0, first_year_budget - first_year_benefit)
+        future_total = cur_trad + cur_roth + cur_tax
         
-        if future_portfolio_deterministic > 0:
-            initial_withdrawal_rate = (initial_withdrawal / future_portfolio_deterministic) * 100
-        else:
-            initial_withdrawal_rate = float('inf') if initial_withdrawal > 0 else 0.0
+        # Initial Withdrawal Rate Calculation
+        first_year_budget = self.target_budget * ((1 + self.inflation_rate) ** years_to_retire)
+        first_year_benefit = self.monthly_benefits * 12 * ((1 + self.inflation_rate) ** years_to_retire)
+        initial_net_withdrawal = max(0, first_year_budget - first_year_benefit)
+        
+        initial_gross_withdrawal = 0
+        temp_tax, temp_trad, temp_roth = cur_tax, cur_trad, cur_roth
+        temp_needed = initial_net_withdrawal
+        
+        draw_tax = min(temp_tax, temp_needed)
+        temp_needed -= draw_tax
+        initial_gross_withdrawal += draw_tax
+        
+        trad_gross_needed = temp_needed / (1 - self.effective_tax_rate) if self.effective_tax_rate < 1 else 0
+        draw_trad = min(temp_trad, trad_gross_needed)
+        temp_needed -= draw_trad * (1 - self.effective_tax_rate)
+        initial_gross_withdrawal += draw_trad
+        
+        draw_roth = min(temp_roth, temp_needed)
+        initial_gross_withdrawal += draw_roth
+        
+        initial_withdrawal_rate = (initial_gross_withdrawal / future_total * 100) if future_total > 0 else float('inf')
 
+        # Drawdown (Deterministic)
         for year in range(retirement_years):
-            beginning = current_port
-            annual_benefit = self.monthly_benefits * 12 * ((1 + self.inflation_rate) ** (year + years_until_retirement))
-            annual_budget = self.target_budget * ((1 + self.inflation_rate) ** (year + years_until_retirement))
-            withdrawal = max(0, annual_budget - annual_benefit)
+            beginning = cur_trad + cur_roth + cur_tax
+            annual_benefit = self.monthly_benefits * 12 * ((1 + self.inflation_rate) ** (year + years_to_retire))
+            annual_budget = self.target_budget * ((1 + self.inflation_rate) ** (year + years_to_retire))
+            net_needed = max(0, annual_budget - annual_benefit)
             
-            if beginning - withdrawal < 0:
-                withdrawal = beginning
-                interest = 0
-                current_port = 0
-            else:
-                interest = (beginning - withdrawal) * self.expected_return
-                current_port = beginning - withdrawal + interest
+            gross_withdrawal = 0
+            
+            # Withdrawal Order: Taxable -> Traditional (Grossed Up) -> Roth
+            draw_tax = min(cur_tax, net_needed)
+            cur_tax -= draw_tax
+            net_needed -= draw_tax
+            gross_withdrawal += draw_tax
+            
+            trad_gross_needed = net_needed / (1 - self.effective_tax_rate) if self.effective_tax_rate < 1 else 0
+            draw_trad = min(cur_trad, trad_gross_needed)
+            cur_trad -= draw_trad
+            net_needed -= draw_trad * (1 - self.effective_tax_rate)
+            gross_withdrawal += draw_trad
+            
+            draw_roth = min(cur_roth, net_needed)
+            cur_roth -= draw_roth
+            gross_withdrawal += draw_roth
+            
+            int_trad = cur_trad * self.expected_return
+            int_roth = cur_roth * self.expected_return
+            int_tax = cur_tax * self.expected_return
+            
+            cur_trad += int_trad
+            cur_roth += int_roth
+            cur_tax += int_tax
 
             combined_table.append({
-                'Year': years_until_retirement + year,
+                'Year': years_to_retire + year,
                 'Age': self.age_retire + year,
                 'Investment_Amount': beginning,
                 'Contributions': 0.0,
-                'Interest_Earned': interest,
-                'Withdrawals': withdrawal,
-                'Ending_Balance': current_port
+                'Interest_Earned': int_trad + int_roth + int_tax,
+                'Withdrawals': gross_withdrawal,  # Show the Gross (Tax-burdened) amount
+                'Ending_Balance': cur_trad + cur_roth + cur_tax
             })
 
-        # 2. Monte Carlo Simulation (For Chart & Probability)
-        portfolio_returns = self.generate_returns(self.num_simulations, years_until_retirement)
-        portfolios = np.full((self.num_simulations, years_until_retirement + 1), self.portfolio_total, dtype=np.float64)
+        # --- 2. Monte Carlo Simulation (3 Buckets) ---
+        pre_returns = self.generate_returns(self.num_simulations, years_to_retire)
         
-        for year in range(years_until_retirement):
-            portfolios[:, year + 1] = (portfolios[:, year] + total_yearly_investment) * (1 + portfolio_returns[:, year])
+        port_trad = np.full((self.num_simulations, years_to_retire + 1), self.trad_start, dtype=np.float64)
+        port_roth = np.full((self.num_simulations, years_to_retire + 1), self.roth_start, dtype=np.float64)
+        port_tax = np.full((self.num_simulations, years_to_retire + 1), self.tax_start, dtype=np.float64)
         
-        future_portfolios = portfolios[:, -1]
-        pre_retirement_median_path = np.median(portfolios, axis=0)
-
-        portfolio_returns_ret = self.generate_returns(self.num_simulations, retirement_years)
-        ret_portfolios = np.full((self.num_simulations, retirement_years + 1), 0.0, dtype=np.float64)
-        ret_portfolios[:, 0] = future_portfolios
-        
-        for year in range(retirement_years):
-            annual_benefit = self.monthly_benefits * 12 * ((1 + self.inflation_rate) ** (year + years_until_retirement))
-            annual_budget = self.target_budget * ((1 + self.inflation_rate) ** (year + years_until_retirement))
-            withdrawals = np.maximum(0, annual_budget - annual_benefit)
+        for yr in range(years_to_retire):
+            ret_multiplier = 1 + pre_returns[:, yr]
+            port_trad[:, yr+1] = (port_trad[:, yr] + trad_contr) * ret_multiplier
+            port_roth[:, yr+1] = (port_roth[:, yr] + roth_contr) * ret_multiplier
+            port_tax[:, yr+1] = (port_tax[:, yr] + tax_contr) * ret_multiplier
             
-            after_withdrawal = ret_portfolios[:, year] - withdrawals
-            ret_portfolios[:, year + 1] = np.maximum(0, after_withdrawal * (1 + portfolio_returns_ret[:, year]))
-            depleted = ret_portfolios[:, year + 1] <= 0
-            ret_portfolios[depleted, year + 1:] = 0
+        pre_total = port_trad + port_roth + port_tax
+        pre_retirement_median_path = np.median(pre_total, axis=0)
 
-        success_rate = (ret_portfolios[:, -1] > 0).mean() * 100
-        retirement_median_path = np.median(ret_portfolios, axis=0)
+        ret_returns = self.generate_returns(self.num_simulations, retirement_years)
+        
+        ret_trad = np.full((self.num_simulations, retirement_years + 1), 0.0, dtype=np.float64)
+        ret_roth = np.full((self.num_simulations, retirement_years + 1), 0.0, dtype=np.float64)
+        ret_tax = np.full((self.num_simulations, retirement_years + 1), 0.0, dtype=np.float64)
+        
+        ret_trad[:, 0] = port_trad[:, -1]
+        ret_roth[:, 0] = port_roth[:, -1]
+        ret_tax[:, 0] = port_tax[:, -1]
+        
+        for yr in range(retirement_years):
+            annual_benefit = self.monthly_benefits * 12 * ((1 + self.inflation_rate) ** (yr + years_to_retire))
+            annual_budget = self.target_budget * ((1 + self.inflation_rate) ** (yr + years_to_retire))
+            
+            # Array of needed net withdrawals for all 10,000 simulations
+            net_needed = np.full(self.num_simulations, max(0, annual_budget - annual_benefit))
+            
+            # 1. Taxable Bucket
+            draw_tax = np.minimum(ret_tax[:, yr], net_needed)
+            ret_tax[:, yr] -= draw_tax
+            net_needed -= draw_tax
+            
+            # 2. Traditional Bucket (Apply Effective Tax Rate Gross-Up)
+            trad_gross_needed = net_needed / (1 - self.effective_tax_rate)
+            draw_trad = np.minimum(ret_trad[:, yr], trad_gross_needed)
+            ret_trad[:, yr] -= draw_trad
+            net_needed -= draw_trad * (1 - self.effective_tax_rate)
+            
+            # 3. Roth Bucket
+            draw_roth = np.minimum(ret_roth[:, yr], net_needed)
+            ret_roth[:, yr] -= draw_roth
+            
+            # Apply market returns to remaining balances
+            ret_multiplier = 1 + ret_returns[:, yr]
+            ret_trad[:, yr+1] = ret_trad[:, yr] * ret_multiplier
+            ret_roth[:, yr+1] = ret_roth[:, yr] * ret_multiplier
+            ret_tax[:, yr+1] = ret_tax[:, yr] * ret_multiplier
+
+        ret_total = ret_trad + ret_roth + ret_tax
+        success_rate = (ret_total[:, -1] > 0).mean() * 100
+        retirement_median_path = np.median(ret_total, axis=0)
 
         return {
             'success_rate': success_rate,
@@ -149,9 +252,9 @@ class EnhancedRetirementCalculator:
         ret_ages = self.age_retire + np.arange(len(results['retirement_path']))
         ax1.plot(ret_ages, results['retirement_path'], 'g-', linewidth=3, label='Retirement Phase')
         
-        ax1.set_title('Median Portfolio Projection (10,000 Monte Carlo Simulations)', fontsize=14, fontweight='bold')
+        ax1.set_title('Median Total Portfolio Projection (10,000 Monte Carlo Simulations)', fontsize=14, fontweight='bold')
         ax1.set_xlabel('Age')
-        ax1.set_ylabel('Portfolio Value ($)')
+        ax1.set_ylabel('Total Portfolio Value ($)')
         ax1.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda x, p: f'${x/1000:.0f}K'))
         ax1.grid(True, alpha=0.3)
         ax1.legend()
@@ -170,8 +273,8 @@ class EnhancedRetirementCalculator:
             budgets = [self.target_budget * ((1 + self.inflation_rate)**(yr + years_until_ret)) for yr in range(len(ret_table))]
             
             ax2.bar(ages, benefits, label='Fixed Benefits (Pension/SSN)', color='#8ecae6')
-            ax2.bar(ages, withdrawals, bottom=benefits, label='Portfolio Withdrawals', color='#219ebc')
-            ax2.plot(ages, budgets, 'r--', linewidth=2, label='Target Inflation-Adjusted Budget')
+            ax2.bar(ages, withdrawals, bottom=benefits, label='Gross Portfolio Withdrawals (Includes Taxes)', color='#219ebc')
+            ax2.plot(ages, budgets, 'r--', linewidth=2, label='Target Net Inflation-Adjusted Budget')
             
             ax2.set_title('Funding Your Retirement: Income vs Target Budget', fontsize=14, fontweight='bold')
             ax2.set_xlabel('Age')
@@ -198,36 +301,41 @@ def calculate_gap():
     age_current = int(data.get('age_current', 35))
     age_retire = int(data.get('age_retire', 65))
     monthly_budget = float(data.get('monthly_budget', 5000))
-    portfolio_total = float(data.get('portfolio_total', 50000))
     monthly_benefits = float(data.get('monthly_benefits', 0))
+    filing_status = data.get('filing_status', 'married')
+    
+    # New Split Portfolio
+    trad_start = float(data.get('portfolio_traditional', 0))
+    roth_start = float(data.get('portfolio_roth', 0))
+    tax_start = float(data.get('portfolio_taxable', 0))
+    total_start = trad_start + roth_start + tax_start
     
     expected_return = float(data.get('expected_return', 7.0)) / 100
     inflation_rate = float(data.get('inflation_rate', 2.5)) / 100
 
-    withdrawal_rate = 0.04
     years_to_retire = max(0, age_retire - age_current)
 
+    # Tax & Target Logic
     target_income_today = monthly_budget * 12
+    effective_tax_rate = calculate_effective_tax(target_income_today, filing_status)
     target_income_future = target_income_today * ((1 + inflation_rate) ** years_to_retire)
 
-    future_portfolio = portfolio_total * ((1 + expected_return) ** years_to_retire)
-    portfolio_income = future_portfolio * withdrawal_rate
-    projected_income_future = portfolio_income + (monthly_benefits * 12)
+    # Simplified Projection for Gap Page (Assumes blending the tax rate across entire portfolio for speed)
+    future_portfolio = total_start * ((1 + expected_return) ** years_to_retire)
+    blended_withdrawal_rate = 0.04
+    projected_net_from_portfolio = (future_portfolio * blended_withdrawal_rate) * (1 - (effective_tax_rate * (trad_start / max(total_start, 1))))
+    projected_income_future = projected_net_from_portfolio + (monthly_benefits * 12)
 
     shortfall = target_income_future - projected_income_future
     is_on_track = shortfall <= 0
 
     required_monthly_investment = 0
     if not is_on_track and years_to_retire > 0:
-        target_additional_portfolio = shortfall / withdrawal_rate
+        target_additional_portfolio = shortfall / blended_withdrawal_rate
         
         rng = np.random.default_rng(None)
-        num_sims = 10000
-        volatility = 0.12 
-        
-        portfolio_returns = rng.normal(expected_return, volatility, size=(num_sims, years_to_retire))
-        
-        current_bals = np.zeros(num_sims)
+        portfolio_returns = rng.normal(expected_return, 0.12, size=(10000, years_to_retire))
+        current_bals = np.zeros(10000)
         for yr in range(years_to_retire):
             current_bals = (current_bals + 1.0) * (1 + portfolio_returns[:, yr])
         
@@ -242,6 +350,7 @@ def calculate_gap():
             'name': name,
             'expected_return': expected_return * 100,
             'inflation_rate': inflation_rate * 100,
+            'effective_tax_rate': effective_tax_rate * 100,
             'target_income_future': target_income_future,
             'projected_income_future': projected_income_future,
             'shortfall': max(0, shortfall),
@@ -267,16 +376,20 @@ def calculate_advanced():
                 investment_streams.append(stream)
 
         target_budget_today = float(data['monthly_budget']) * 12
+        effective_tax_rate = calculate_effective_tax(target_budget_today, data.get('filing_status', 'married'))
 
         calculator = EnhancedRetirementCalculator(
             age_current=int(data['age_current']),
             age_retire=int(data['age_retire']),
-            portfolio_total=float(data['portfolio_total']),
+            trad_start=float(data.get('portfolio_traditional', 0)),
+            roth_start=float(data.get('portfolio_roth', 0)),
+            tax_start=float(data.get('portfolio_taxable', 0)),
             investment_streams=investment_streams,
             target_budget=target_budget_today,
             monthly_benefits=float(data['monthly_benefits']),
             expected_return=float(data['expected_return']) / 100,
-            inflation_rate=float(data['inflation_rate']) / 100
+            inflation_rate=float(data['inflation_rate']) / 100,
+            effective_tax_rate=effective_tax_rate
         )
 
         results = calculator.calculate()
@@ -288,7 +401,8 @@ def calculate_advanced():
                 'success_probability': f"{results['success_rate']:.1f}%",
                 'chart': chart,
                 'combined_table': results['combined_table'],
-                'initial_withdrawal_rate': results['initial_withdrawal_rate']
+                'initial_withdrawal_rate': results['initial_withdrawal_rate'],
+                'effective_tax_rate': effective_tax_rate * 100
             }
         })
     except Exception as e:
