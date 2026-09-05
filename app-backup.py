@@ -1,15 +1,21 @@
 from flask import Flask, render_template, request, jsonify
+import os
+import logging
 import pandas as pd
 import numpy as np
 import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend
-import matplotlib.pyplot as plt
-import seaborn as sns
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
+import matplotlib.ticker
 import base64
 import io
 import json
 from dataclasses import dataclass
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
@@ -30,7 +36,14 @@ class EnhancedRetirementCalculator:
                  retirement_phases, healthcare_costs,
                  # New parameters for asset allocation
                  stock_allocation=0.7, bond_allocation=0.3, stock_volatility=0.16,
-                 bond_volatility=0.05, correlation=-0.1, investment_streams=None):
+                 bond_volatility=0.05, correlation=-0.1, investment_streams=None,
+                 random_seed: Optional[int] = None, num_simulations: int = 10000):
+
+        # Basic validations
+        if age_retire <= age_current:
+            raise ValueError("age_retire must be greater than age_current")
+        if stock_allocation < 0 or bond_allocation < 0 or abs(stock_allocation + bond_allocation - 1.0) > 1e-6:
+            raise ValueError("stock_allocation and bond_allocation must be non-negative and sum to 1.0")
 
         self.age_current = age_current
         self.age_retire = age_retire
@@ -55,20 +68,22 @@ class EnhancedRetirementCalculator:
         self.bond_volatility = bond_volatility
         self.correlation = correlation
 
+        # Randomness and simulation config
+        self.rng = np.random.default_rng(random_seed)
+        self.num_simulations = int(num_simulations)
+
         # Multiple investment streams
         self.investment_streams = investment_streams or []
 
     def generate_correlated_returns(self, num_simulations: int, num_years: int) -> Tuple[np.ndarray, np.ndarray]:
         """Generate correlated stock and bond returns using NumPy vectorization"""
-        # Create correlation matrix
-        corr_matrix = np.array([[1.0, self.correlation],
-                               [self.correlation, 1.0]])
+        cov = [[self.stock_volatility**2, self.correlation * self.stock_volatility * self.bond_volatility],
+               [self.correlation * self.stock_volatility * self.bond_volatility, self.bond_volatility**2]]
 
-        # Generate uncorrelated random returns
-        random_returns = np.random.multivariate_normal(
+        # Draw samples using the instance RNG
+        random_returns = self.rng.multivariate_normal(
             [self.expected_return, 0.04],  # Stock and bond expected returns
-            [[self.stock_volatility**2, self.correlation * self.stock_volatility * self.bond_volatility],
-             [self.correlation * self.stock_volatility * self.bond_volatility, self.bond_volatility**2]],
+            cov,
             size=(num_simulations, num_years)
         )
 
@@ -155,6 +170,12 @@ class EnhancedRetirementCalculator:
 
         future_portfolio = pre_retirement_df.loc[years_until_retirement, 'Portfolio']
 
+        # Run Monte Carlo for pre-retirement (accumulation) phase
+        pre_retirement_contributions = pre_retirement_df.loc[1:years_until_retirement, 'Yearly_Contribution'].values
+        pre_retirement_median_path = self.monte_carlo_pre_retirement_vectorized(
+            self.portfolio_total, years_until_retirement, pre_retirement_contributions
+        )
+
         # Retirement phase calculations remain similar but with enhanced Monte Carlo
         df = pd.DataFrame(index=range(retirement_years + 1))
         df.loc[0, 'Age'] = self.age_retire
@@ -173,6 +194,8 @@ class EnhancedRetirementCalculator:
             'Early Active': [1.2] * min(10, retirement_years) + [0.9] * max(0, retirement_years - 10),
             'Late Increase': [0.9] * min(20, retirement_years) + [1.3] * max(0, retirement_years - 20)
         }
+        if self.retirement_phases not in phase_adjustments:
+            raise ValueError(f"Invalid retirement_phases: {self.retirement_phases}. Valid options: {list(phase_adjustments.keys())}")
         spending_adjustments = phase_adjustments[self.retirement_phases]
 
         for year in range(1, retirement_years + 1):
@@ -204,7 +227,7 @@ class EnhancedRetirementCalculator:
                 break
 
         # Enhanced Monte Carlo with vectorized operations
-        success_probability, ending_values = self.monte_carlo_simulation_vectorized(
+        success_probability, ending_values, median_path = self.monte_carlo_simulation_vectorized(
             future_portfolio, retirement_years, years_until_retirement,
             initial_retirement_budget, spending_adjustments
         )
@@ -217,13 +240,16 @@ class EnhancedRetirementCalculator:
             'years_until_retirement': years_until_retirement,
             'retirement_years': retirement_years,
             'initial_retirement_budget': initial_retirement_budget,
-            'ending_values': ending_values  # New: for probability distribution
+            'ending_values': ending_values,  # New: for probability distribution
+            'median_path': median_path,  # New: median Monte Carlo path for retirement years
+            'pre_retirement_median_path': pre_retirement_median_path  # New: median path for accumulation
         }
 
     def monte_carlo_simulation_vectorized(self, future_portfolio, retirement_years, years_until_retirement,
                                         initial_retirement_budget, spending_adjustments):
         """Vectorized Monte Carlo simulation using NumPy for massive speed improvements"""
-        num_simulations = 10000  # Increased due to better performance
+        # Use configured number of simulations
+        num_simulations = int(self.num_simulations)
 
         # Generate all random returns at once using vectorization
         stock_returns, bond_returns = self.generate_correlated_returns(num_simulations, retirement_years)
@@ -260,8 +286,42 @@ class EnhancedRetirementCalculator:
         # Calculate success rate and ending values
         ending_values = portfolios[:, -1]
         success_rate = (ending_values > 0).mean() * 100
+        
+        # Calculate median path for visualization
+        median_path = np.median(portfolios, axis=0)
 
-        return success_rate, ending_values
+        return success_rate, ending_values, median_path
+
+    def monte_carlo_pre_retirement_vectorized(self, initial_portfolio, years_until_retirement, 
+                                              yearly_contributions):
+        """Monte Carlo simulation for accumulation phase - returns median path"""
+        num_simulations = int(self.num_simulations)
+        
+        # Generate correlated returns for accumulation phase
+        stock_returns, bond_returns = self.generate_correlated_returns(num_simulations, years_until_retirement)
+        portfolio_returns = self.calculate_portfolio_returns(stock_returns, bond_returns)
+        
+        # Initialize arrays for vectorized calculations
+        portfolios = np.full((num_simulations, years_until_retirement + 1), initial_portfolio, dtype=np.float64)
+        
+        # Vectorized simulation across all scenarios
+        for year in range(years_until_retirement):
+            # Determine contribution for this year
+            if year < len(yearly_contributions):
+                contribution = yearly_contributions[year]
+            else:
+                contribution = 0
+            
+            # Apply returns with contribution
+            current_portfolios = portfolios[:, year]
+            after_contribution = current_portfolios + contribution
+            returns = after_contribution * portfolio_returns[:, year]
+            portfolios[:, year + 1] = after_contribution + returns
+        
+        # Calculate median path for visualization
+        median_path = np.median(portfolios, axis=0)
+        
+        return median_path
 
     def calculate_tax_efficient_contributions(self, year: int) -> Dict[str, float]:
         """Calculate tax-efficient allocation across multiple investment streams"""
@@ -270,10 +330,8 @@ class EnhancedRetirementCalculator:
         tax_savings = 0
 
         # Sort streams by tax efficiency (Roth limits first, then traditional, then taxable)
-        sorted_streams = sorted(self.investment_streams,
-                               key=lambda x: (x.tax_treatment == 'traditional',
-                                             x.tax_treatment == 'roth',
-                                             x.tax_treatment == 'taxable'))
+        priority = {'roth': 0, 'traditional': 1, 'taxable': 2}
+        sorted_streams = sorted(self.investment_streams, key=lambda s: priority.get(s.tax_treatment, 99))
 
         for stream in sorted_streams:
             available_contribution = min(stream.annual_contribution, stream.contribution_limit)
@@ -303,41 +361,52 @@ class EnhancedRetirementCalculator:
         }
 
     def create_enhanced_charts(self, results):
-        """Create enhanced charts including probability distribution"""
+        """Create enhanced charts including probability distribution - THREAD SAFE OO API"""
         pre_retirement_df = results['pre_retirement_df']
         df = results['retirement_df']
         ending_values = results['ending_values']
+        median_path = results.get('median_path')
+        pre_retirement_median_path = results.get('pre_retirement_median_path')
 
-        # Create a larger figure with more subplots
-        fig = plt.figure(figsize=(20, 16))
-
+        # Create figure using OO API (thread-safe)
+        fig = Figure(figsize=(20, 16))
+        
         # Layout: 3 rows, 2 columns
-        ax1 = plt.subplot(3, 2, 1)
-        ax2 = plt.subplot(3, 2, 2)
-        ax3 = plt.subplot(3, 2, 3)
-        ax4 = plt.subplot(3, 2, 4)
-        ax5 = plt.subplot(3, 2, 5)
-        ax6 = plt.subplot(3, 2, 6)
+        ax1 = fig.add_subplot(3, 2, 1)
+        ax2 = fig.add_subplot(3, 2, 2)
+        ax3 = fig.add_subplot(3, 2, 3)
+        ax4 = fig.add_subplot(3, 2, 4)
+        ax5 = fig.add_subplot(3, 2, 5)
+        ax6 = fig.add_subplot(3, 2, 6)
 
-        # Chart 1: Pre-Retirement Portfolio Growth
-        ax1.plot(pre_retirement_df['Age'], pre_retirement_df['Portfolio'], 'g-', linewidth=3, label='Portfolio Value')
+        # Chart 1: Pre-Retirement Portfolio Growth (Median Monte Carlo Path)
+        if pre_retirement_median_path is not None:
+            pre_retirement_ages = self.age_current + np.arange(len(pre_retirement_median_path))
+            ax1.plot(pre_retirement_ages, pre_retirement_median_path, 'purple', linewidth=3, label='Median Path (Monte Carlo)', linestyle='-')
+            ax1.fill_between(pre_retirement_ages, 0, pre_retirement_median_path, alpha=0.2, color='purple')
+        ax1.plot(pre_retirement_df['Age'], pre_retirement_df['Portfolio'], 'g--', linewidth=2, label='Deterministic Path', alpha=0.6)
         ax1.bar(pre_retirement_df['Age'], pre_retirement_df['Yearly_Contribution'],
                 color='blue', alpha=0.4, label='Annual Contributions', width=0.8)
-        ax1.set_title('Pre-Retirement Portfolio Growth', fontsize=14, fontweight='bold')
+        ax1.set_title('Pre-Retirement Portfolio Growth: Median vs Deterministic', fontsize=14, fontweight='bold')
         ax1.set_xlabel('Age')
         ax1.set_ylabel('Portfolio Value ($)')
         ax1.grid(True, alpha=0.3)
         ax1.legend()
-        ax1.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'${x/1000:.0f}K'))
+        ax1.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda x, p: f'${x/1000:.0f}K'))
 
-        # Chart 2: Retirement Portfolio Value
-        ax2.plot(df['Age'], df['Portfolio'], 'b-', linewidth=3)
-        ax2.fill_between(df['Age'], 0, df['Portfolio'], alpha=0.3, color='blue')
-        ax2.set_title('Retirement Portfolio Depletion', fontsize=14, fontweight='bold')
+        # Chart 2: Retirement Portfolio Value (Median Monte Carlo Path)
+        if median_path is not None:
+            retirement_ages = self.age_retire + np.arange(len(median_path))
+            ax2.plot(retirement_ages, median_path, 'purple', linewidth=3, label='Median Path (Monte Carlo)', linestyle='-')
+            ax2.fill_between(retirement_ages, 0, median_path, alpha=0.2, color='purple')
+        ax2.plot(df['Age'], df['Portfolio'], 'b--', linewidth=2, label='Deterministic Path', alpha=0.6)
+        ax2.fill_between(df['Age'], 0, df['Portfolio'], alpha=0.2, color='blue')
+        ax2.set_title('Retirement Portfolio: Median vs Deterministic', fontsize=14, fontweight='bold')
         ax2.set_xlabel('Age')
         ax2.set_ylabel('Portfolio Value ($)')
         ax2.grid(True, alpha=0.3)
-        ax2.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'${x/1000:.0f}K'))
+        ax2.legend()
+        ax2.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda x, p: f'${x/1000:.0f}K'))
 
         # Chart 3: Income vs Expenses
         width = 0.35
@@ -351,10 +420,9 @@ class EnhancedRetirementCalculator:
         ax3.set_ylabel('Amount ($)')
         ax3.grid(True, alpha=0.3)
         ax3.legend()
-        ax3.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'${x/1000:.0f}K'))
+        ax3.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda x, p: f'${x/1000:.0f}K'))
 
         # Chart 4: Asset Allocation Performance
-        years = np.arange(len(df))
         stock_component = df['Portfolio'] * self.stock_allocation
         bond_component = df['Portfolio'] * self.bond_allocation
         ax4.fill_between(df['Age'], 0, stock_component, alpha=0.6, color='red', label=f'Stocks ({self.stock_allocation*100:.0f}%)')
@@ -364,18 +432,27 @@ class EnhancedRetirementCalculator:
         ax4.set_ylabel('Value ($)')
         ax4.legend()
         ax4.grid(True, alpha=0.3)
-        ax4.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'${x/1000:.0f}K'))
+        ax4.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda x, p: f'${x/1000:.0f}K'))
 
         # Chart 5: Probability Distribution of Ending Values
-        ax5.hist(ending_values[ending_values > 0], bins=50, alpha=0.7, color='green', density=True, label='Successful Scenarios')
-        ax5.hist(ending_values[ending_values == 0], bins=1, alpha=0.7, color='red', density=True, label='Failed Scenarios')
-        ax5.axvline(np.median(ending_values[ending_values > 0]), color='orange', linestyle='--', linewidth=2, label='Median (Successful)')
+        successful = ending_values[ending_values > 0]
+        failed_count = int(np.sum(ending_values == 0))
+
+        if successful.size == 0:
+            ax5.text(0.5, 0.5, 'No successful scenarios', ha='center', va='center', transform=ax5.transAxes, fontsize=12)
+        else:
+            ax5.hist(successful, bins=50, alpha=0.7, color='green', density=True, label='Successful Scenarios')
+            ax5.axvline(np.median(successful), color='orange', linestyle='--', linewidth=2, label='Median (Successful)')
+
+        if failed_count > 0:
+            ax5.text(0.95, 0.95, f'Failed scenarios: {failed_count}/{len(ending_values)}', ha='right', va='top', transform=ax5.transAxes, fontsize=10, color='red')
+
         ax5.set_title('Distribution of Portfolio Values at End of Retirement', fontsize=14, fontweight='bold')
         ax5.set_xlabel('Final Portfolio Value ($)')
         ax5.set_ylabel('Probability Density')
         ax5.legend()
         ax5.grid(True, alpha=0.3)
-        ax5.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'${x/1000000:.1f}M'))
+        ax5.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda x, p: f'${x/1000000:.1f}M'))
 
         # Chart 6: Withdrawal Rate Analysis
         withdrawal_rates = df['Withdrawal_Rate'] * 100
@@ -390,12 +467,13 @@ class EnhancedRetirementCalculator:
         ax6.grid(True, alpha=0.3)
         ax6.set_ylim(0, max(15, withdrawal_rates.max() * 1.1))
 
-        plt.tight_layout()
+        # Use OO API for saving (thread-safe)
+        fig.tight_layout()
         img = io.BytesIO()
-        plt.savefig(img, format='png', dpi=150, bbox_inches='tight')
+        canvas = FigureCanvas(fig)
+        canvas.print_png(img)
         img.seek(0)
         plot_url = base64.b64encode(img.getvalue()).decode()
-        plt.close()
 
         return plot_url
 
@@ -411,7 +489,21 @@ def index():
 @app.route('/calculate', methods=['POST'])
 def calculate():
     try:
-        data = request.get_json()
+        # Parse JSON safely (don't raise on bad/missing Content-Type)
+        data = request.get_json(silent=True)
+
+        # Basic request validation
+        if not isinstance(data, dict):
+            raise ValueError('Invalid or missing JSON payload')
+
+        # Required fields (yearly_investment is optional now)
+        required_fields = ['age_current', 'age_retire', 'life_expectancy', 'monthly_benefit_income',
+                           'portfolio_total', 'years_contributing', 'current_monthly_budget',
+                           'inflation_rate', 'expected_return', 'account_type', 'tax_rate',
+                           'retirement_budget_ratio', 'retirement_phases', 'healthcare_costs']
+        missing = [f for f in required_fields if f not in data or str(data.get(f)).strip() == '']
+        if missing:
+            raise ValueError(f"Missing required field(s): {', '.join(missing)}")
 
         # Process investment streams if provided
         investment_streams = []
@@ -433,7 +525,7 @@ def calculate():
             life_expectancy=int(data['life_expectancy']),
             monthly_benefit_income=float(data['monthly_benefit_income']),
             portfolio_total=float(data['portfolio_total']),
-            yearly_investment=float(data['yearly_investment']),
+            yearly_investment=float(data.get('yearly_investment', 0)),
             years_contributing=int(data['years_contributing']),
             current_monthly_budget=float(data['current_monthly_budget']),
             inflation_rate=float(data['inflation_rate']) / 100,
@@ -449,11 +541,97 @@ def calculate():
             stock_volatility=float(data.get('stock_volatility', 16)) / 100,
             bond_volatility=float(data.get('bond_volatility', 5)) / 100,
             correlation=float(data.get('correlation', -10)) / 100,
+            random_seed=int(data.get('random_seed')) if data.get('random_seed') is not None else None,
+            num_simulations=int(data.get('num_simulations', 10000)),
             investment_streams=investment_streams
         )
 
         results = calculator.calculate()
         chart_data = calculator.create_enhanced_charts(results)
+
+        # Serialize per-year tables for the Details tab
+        pre_table = []
+        pre_df = results.get('pre_retirement_df')
+        if pre_df is not None:
+            pre_df = pre_df.reset_index(drop=True)
+            for i, row in pre_df.iterrows():
+                beginning = float(pre_df.loc[i-1, 'Portfolio']) if i > 0 else float(row['Portfolio'])
+                contribution = float(row['Yearly_Contribution']) if 'Yearly_Contribution' in pre_df.columns and not pd.isna(row.get('Yearly_Contribution', 0)) else 0.0
+                tax_savings = float(row['Tax_Savings']) if 'Tax_Savings' in pre_df.columns and not pd.isna(row.get('Tax_Savings', 0)) else 0.0
+                ending = float(row['Portfolio'])
+                pre_table.append({
+                    'Year': int(i),
+                    'Age': int(row['Age']),
+                    'Beginning_Portfolio': beginning,
+                    'Yearly_Contribution': contribution,
+                    'Tax_Savings': tax_savings,
+                    'Ending_Portfolio': ending
+                })
+
+        ret_table = []
+        ret_df = results.get('retirement_df')
+        if ret_df is not None:
+            ret_df = ret_df.reset_index(drop=True)
+            for i, row in ret_df.iterrows():
+                beginning = float(ret_df.loc[i-1, 'Portfolio']) if i > 0 else float(row['Portfolio'])
+                withdrawal = float(row['Withdrawal']) if 'Withdrawal' in ret_df.columns and not pd.isna(row.get('Withdrawal', 0)) else 0.0
+                ending = float(row['Portfolio'])
+                investment_return = ending - (beginning - withdrawal)
+                ret_table.append({
+                    'Year': int(i),
+                    'Age': int(row['Age']),
+                    'Beginning_Portfolio': beginning,
+                    'Withdrawal': withdrawal,
+                    'Investment_Return': investment_return,
+                    'Ending_Portfolio': ending,
+                    'Annual_Budget': float(row['Annual_Budget']) if 'Annual_Budget' in ret_df.columns and not pd.isna(row.get('Annual_Budget', 0)) else 0.0,
+                    'Healthcare_Costs': float(row['Healthcare_Costs']) if 'Healthcare_Costs' in ret_df.columns and not pd.isna(row.get('Healthcare_Costs', 0)) else 0.0,
+                    'Withdrawal_Rate': float(row['Withdrawal_Rate']) if 'Withdrawal_Rate' in ret_df.columns and not pd.isna(row.get('Withdrawal_Rate', 0)) else 0.0
+                })
+
+        # Build a simplified, single combined table for the Details tab so the frontend can render one table
+        combined_table = []
+        # Build continuous year index and avoid duplicating the retirement-start row
+        year_counter = 0
+        for row in pre_table:
+            investment = float(row['Beginning_Portfolio'])
+            contributions = float(row.get('Yearly_Contribution', 0.0))
+            ending = float(row['Ending_Portfolio'])
+            interest = ending - (investment + contributions)
+            combined_table.append({
+                'Year': year_counter,
+                'Age': row['Age'],
+                'Investment_Amount': investment,
+                'Contributions': contributions,
+                'Interest_Earned': interest,
+                'Withdrawals': 0.0,
+                'Ending_Balance': ending
+            })
+            year_counter += 1
+
+        # Decide start index for retirement rows (skip the initial retirement row if it duplicates the last pre row)
+        ret_start = 0
+        if pre_table and ret_table:
+            if ret_table[0]['Age'] == pre_table[-1]['Age']:
+                ret_start = 1
+
+        for idx in range(ret_start, len(ret_table)):
+            row = ret_table[idx]
+            investment = float(row['Beginning_Portfolio'])
+            withdrawals = float(row.get('Withdrawal', 0.0))
+            ending = float(row['Ending_Portfolio'])
+            interest = float(row.get('Investment_Return', ending - (investment - withdrawals)))
+            combined_table.append({
+                'Year': year_counter,
+                'Age': row['Age'],
+                'Investment_Amount': investment,
+                'Contributions': 0.0,
+                'Interest_Earned': interest,
+                'Withdrawals': withdrawals,
+                'Ending_Balance': ending
+            })
+            year_counter += 1
+
 
         df = results['retirement_df']
         ending_values = results['ending_values']
@@ -490,12 +668,22 @@ def calculate():
                 'asset_allocation': {
                     'stocks': f"{calculator.stock_allocation*100:.0f}%",
                     'bonds': f"{calculator.bond_allocation*100:.0f}%"
+                },
+                'details': {
+                    'pre_retirement': pre_table,
+                    'retirement': ret_table,
+                    'combined': combined_table
                 }
             }
         })
 
+    except ValueError as e:
+        logger.error("Validation error during calculation: %s", e)
+        return jsonify({'success': False, 'error': str(e)}), 400
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
+        logger.exception("Unhandled exception during calculation")
+        return jsonify({'success': False, 'error': 'Internal server error'}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    debug_flag = os.getenv('FLASK_DEBUG', '0') == '1'
+    app.run(debug=debug_flag)
