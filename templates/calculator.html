@@ -93,65 +93,6 @@
             border-bottom: 2px solid #667eea;
             font-weight: 600;
         }
-        /* Asset Allocation Styles */
-        .asset-allocation-section {
-            background: #fff;
-            padding: 25px;
-            border-radius: 12px;
-            margin: 20px 0;
-            border: 2px solid #e8f0fe;
-        }
-        .allocation-controls {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px;
-            margin: 20px 0;
-        }
-        .slider-group {
-            display: flex;
-            flex-direction: column;
-        }
-        .slider-container {
-            position: relative;
-            margin: 15px 0;
-        }
-        .slider {
-            -webkit-appearance: none;
-            width: 100%;
-            height: 6px;
-            border-radius: 5px;
-            background: #ddd;
-            outline: none;
-            margin: 10px 0;
-        }
-        .slider::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            appearance: none;
-            width: 20px;
-            height: 20px;
-            border-radius: 50%;
-            background: #667eea;
-            cursor: pointer;
-        }
-        .slider::-moz-range-thumb {
-            width: 20px;
-            height: 20px;
-            border-radius: 50%;
-            background: #667eea;
-            cursor: pointer;
-            border: none;
-        }
-        .slider-value {
-            position: absolute;
-            top: -30px;
-            right: 0;
-            background: #667eea;
-            color: white;
-            padding: 2px 8px;
-            border-radius: 4px;
-            font-size: 12px;
-            font-weight: bold;
-        }
         /* Investment Streams Styles */
         .investment-streams-section {
             background: #fff;
@@ -474,7 +415,7 @@
     <div class="container">
         <div class="header">
             <h1>Enhanced Retirement Calculator</h1>
-            <p>Comprehensive retirement planning with Monte Carlo simulation, asset allocation, and multiple investment streams</p>
+            <p>Comprehensive retirement planning with Monte Carlo simulation and multiple investment streams</p>
         </div>
 
         <div class="main-content">
@@ -513,44 +454,6 @@
                         <div class="form-group">
                             <label for="monthly_benefit_income">Monthly Benefits ($) <span class="tooltip" data-tooltip="Expected Social Security and pension income">ℹ</span></label>
                             <input type="number" id="monthly_benefit_income" name="monthly_benefit_income" value="2000" min="0" step="100" required>
-                        </div>
-                    </div>
-
-                    <div class="asset-allocation-section">
-                        <div class="section-title">Asset Allocation & Risk Parameters</div>
-                        <div class="allocation-controls">
-                            <div class="slider-group">
-                                <label>Stock Allocation: <span id="stock-value">70</span>%</label>
-                                <div class="slider-container">
-                                    <input type="range" id="stock_allocation" name="stock_allocation" min="0" max="100" value="70" class="slider">
-                                </div>
-                            </div>
-                            <div class="slider-group">
-                                <label>Bond Allocation: <span id="bond-value">30</span>%</label>
-                                <div class="slider-container">
-                                    <input type="range" id="bond_allocation" name="bond_allocation" min="0" max="100" value="30" class="slider">
-                                </div>
-                            </div>
-                        </div>
-                        <div class="allocation-controls">
-                            <div class="slider-group">
-                                <label>Stock Volatility: <span id="stock-vol-value">16</span>%</label>
-                                <div class="slider-container">
-                                    <input type="range" id="stock_volatility" name="stock_volatility" min="10" max="25" value="16" class="slider">
-                                </div>
-                            </div>
-                            <div class="slider-group">
-                                <label>Bond Volatility: <span id="bond-vol-value">5</span>%</label>
-                                <div class="slider-container">
-                                    <input type="range" id="bond_volatility" name="bond_volatility" min="2" max="10" value="5" class="slider">
-                                </div>
-                            </div>
-                        </div>
-                        <div class="form-group">
-                            <label>Asset Correlation: <span id="correlation-value">-10</span>%</label>
-                            <div class="slider-container">
-                                <input type="range" id="correlation" name="correlation" min="-50" max="50" value="-10" class="slider">
-                            </div>
                         </div>
                     </div>
 
@@ -595,6 +498,10 @@
                             <input type="number" id="inflation_rate" name="inflation_rate" value="2.5" min="1" max="5" step="0.1" required>
                         </div>
                     </div>
+                    <div class="form-group">
+                        <label for="portfolio_volatility">Portfolio Volatility (%) <span class="tooltip" data-tooltip="Expected annual variation in portfolio returns">ℹ</span></label>
+                        <input type="number" id="portfolio_volatility" name="portfolio_volatility" value="16" min="1" max="40" step="1" required>
+                    </div>
                     
                     <div class="form-row">
                         <div class="form-group">
@@ -625,7 +532,7 @@
 
                 <div class="loading" id="loading">
                     <div class="spinner"></div>
-                    <p>Running advanced Monte Carlo simulation with asset allocation modeling...</p>
+                    <p>Running advanced Monte Carlo simulation...</p>
                 </div>
 
                 <div class="error" id="errorMessage"></div>
@@ -686,11 +593,6 @@
                             </div>
 
                             <div class="result-card">
-                                <div class="result-highlight">Asset Allocation Summary</div>
-                                <div id="assetAllocation"></div>
-                            </div>
-
-                            <div class="result-card">
                                 <div class="result-highlight">Key Projections</div>
                                 <div id="keyProjections"></div>
                             </div>
@@ -698,7 +600,7 @@
                             <div class="chart-container">
                                 <h3>Comprehensive Analysis Charts</h3>
                                 <p style="margin-bottom: 20px; color: #666;">
-                                    Includes probability distribution, asset allocation breakdown, and withdrawal rate analysis
+                                    Includes probability distribution and withdrawal rate analysis
                                 </p>
                                 <img id="chartImage" src="" alt="Enhanced Retirement Analysis Charts" style="display: none;">
                             </div>
@@ -727,39 +629,6 @@
 
     <script>
         let streamCounter = 0;
-
-        // Asset allocation slider handlers
-        function setupSliders() {
-            const stockSlider = document.getElementById('stock_allocation');
-            const bondSlider = document.getElementById('bond_allocation');
-            const stockVolSlider = document.getElementById('stock_volatility');
-            const bondVolSlider = document.getElementById('bond_volatility');
-            const correlationSlider = document.getElementById('correlation');
-
-            stockSlider.addEventListener('input', function() {
-                document.getElementById('stock-value').textContent = this.value;
-                bondSlider.value = 100 - this.value;
-                document.getElementById('bond-value').textContent = bondSlider.value;
-            });
-
-            bondSlider.addEventListener('input', function() {
-                document.getElementById('bond-value').textContent = this.value;
-                stockSlider.value = 100 - this.value;
-                document.getElementById('stock-value').textContent = stockSlider.value;
-            });
-
-            stockVolSlider.addEventListener('input', function() {
-                document.getElementById('stock-vol-value').textContent = this.value;
-            });
-
-            bondVolSlider.addEventListener('input', function() {
-                document.getElementById('bond-vol-value').textContent = this.value;
-            });
-
-            correlationSlider.addEventListener('input', function() {
-                document.getElementById('correlation-value').textContent = this.value;
-            });
-        }
 
         function addInvestmentStream() {
             streamCounter++;
@@ -932,15 +801,6 @@
                 document.getElementById('percentile10').textContent = results.percentiles['10th_percentile'];
                 document.getElementById('percentile50').textContent = results.percentiles['50th_percentile'];
                 document.getElementById('percentile90').textContent = results.percentiles['90th_percentile'];
-            }
-            
-            // Asset allocation summary
-            if (results.asset_allocation) {
-                document.getElementById('assetAllocation').innerHTML = `
-                    <p><strong>Stock Allocation:</strong> ${results.asset_allocation.stocks}</p>
-                    <p><strong>Bond Allocation:</strong> ${results.asset_allocation.bonds}</p>
-                    <p>Portfolio volatility is driven by this asset mix and market correlation modeling.</p>
-                `;
             }
             
             // Key projections
@@ -1219,7 +1079,6 @@
         
         // Initialize everything on page load
         document.addEventListener('DOMContentLoaded', function() {
-            setupSliders();
             updateFormValidation();
 
             // Optional: pre-fill sample streams (uncomment if desired)

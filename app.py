@@ -34,17 +34,12 @@ class EnhancedRetirementCalculator:
                  portfolio_total, yearly_investment, years_contributing, current_monthly_budget,
                  inflation_rate, expected_return, account_type, tax_rate, retirement_budget_ratio,
                  retirement_phases, healthcare_costs,
-                 # New parameters for asset allocation
-                 stock_allocation=0.7, bond_allocation=0.3, stock_volatility=0.16,
-                 bond_volatility=0.05, correlation=-0.1, investment_streams=None,
+                 portfolio_volatility=0.16, investment_streams=None,
                  random_seed: Optional[int] = None, num_simulations: int = 10000):
 
         # Basic validations
         if age_retire <= age_current:
             raise ValueError("age_retire must be greater than age_current")
-        if stock_allocation < 0 or bond_allocation < 0 or abs(stock_allocation + bond_allocation - 1.0) > 1e-6:
-            raise ValueError("stock_allocation and bond_allocation must be non-negative and sum to 1.0")
-
         self.age_current = age_current
         self.age_retire = age_retire
         self.life_expectancy = life_expectancy
@@ -61,12 +56,7 @@ class EnhancedRetirementCalculator:
         self.retirement_phases = retirement_phases
         self.healthcare_costs = healthcare_costs
 
-        # New asset allocation parameters
-        self.stock_allocation = stock_allocation
-        self.bond_allocation = bond_allocation
-        self.stock_volatility = stock_volatility
-        self.bond_volatility = bond_volatility
-        self.correlation = correlation
+        self.portfolio_volatility = portfolio_volatility
 
         # Randomness and simulation config
         self.rng = np.random.default_rng(random_seed)
@@ -75,26 +65,13 @@ class EnhancedRetirementCalculator:
         # Multiple investment streams
         self.investment_streams = investment_streams or []
 
-    def generate_correlated_returns(self, num_simulations: int, num_years: int) -> Tuple[np.ndarray, np.ndarray]:
-        """Generate correlated stock and bond returns using NumPy vectorization"""
-        cov = [[self.stock_volatility**2, self.correlation * self.stock_volatility * self.bond_volatility],
-               [self.correlation * self.stock_volatility * self.bond_volatility, self.bond_volatility**2]]
-
-        # Draw samples using the instance RNG
-        random_returns = self.rng.multivariate_normal(
-            [self.expected_return, 0.04],  # Stock and bond expected returns
-            cov,
+    def generate_portfolio_returns(self, num_simulations: int, num_years: int) -> np.ndarray:
+        """Generate annual portfolio returns directly from portfolio assumptions."""
+        return self.rng.normal(
+            self.expected_return,
+            self.portfolio_volatility,
             size=(num_simulations, num_years)
         )
-
-        stock_returns = random_returns[:, :, 0]
-        bond_returns = random_returns[:, :, 1]
-
-        return stock_returns, bond_returns
-
-    def calculate_portfolio_returns(self, stock_returns: np.ndarray, bond_returns: np.ndarray) -> np.ndarray:
-        """Calculate portfolio returns based on asset allocation"""
-        return self.stock_allocation * stock_returns + self.bond_allocation * bond_returns
 
     def process_investment_streams(self, year: int) -> Dict[str, float]:
         """Process multiple investment streams with tax implications"""
@@ -168,9 +145,7 @@ class EnhancedRetirementCalculator:
                 stream_data if year <= years_contributing and self.investment_streams else None
             )
 
-            # Use asset allocation for return calculation
-            portfolio_return = (self.stock_allocation * self.expected_return +
-                               self.bond_allocation * 0.04)  # Assume 4% bond return
+            portfolio_return = self.expected_return
             for bucket in ('roth', 'traditional', 'taxable'):
                 buckets[bucket] = (buckets[bucket] + yearly_buckets[bucket]) * (1 + portfolio_return)
             buckets['taxable_basis'] += yearly_buckets['taxable']
@@ -268,8 +243,7 @@ class EnhancedRetirementCalculator:
         num_simulations = int(self.num_simulations)
 
         # Generate all random returns at once using vectorization
-        stock_returns, bond_returns = self.generate_correlated_returns(num_simulations, retirement_years)
-        portfolio_returns = self.calculate_portfolio_returns(stock_returns, bond_returns)
+        portfolio_returns = self.generate_portfolio_returns(num_simulations, retirement_years)
 
         # Track each tax bucket independently while preserving aggregate output.
         initial_buckets = initial_buckets or self.initial_bucket_balances()
@@ -334,8 +308,7 @@ class EnhancedRetirementCalculator:
         num_simulations = int(self.num_simulations)
         
         # Generate correlated returns for accumulation phase
-        stock_returns, bond_returns = self.generate_correlated_returns(num_simulations, years_until_retirement)
-        portfolio_returns = self.calculate_portfolio_returns(stock_returns, bond_returns)
+        portfolio_returns = self.generate_portfolio_returns(num_simulations, years_until_retirement)
         
         # Initialize arrays for vectorized calculations
         portfolios = np.full((num_simulations, years_until_retirement + 1), initial_portfolio, dtype=np.float64)
@@ -550,12 +523,10 @@ class EnhancedRetirementCalculator:
         ax3.legend()
         ax3.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda x, p: f'${x/1000:.0f}K'))
 
-        # Chart 4: Asset Allocation Performance
-        stock_component = df['Portfolio'] * self.stock_allocation
-        bond_component = df['Portfolio'] * self.bond_allocation
-        ax4.fill_between(df['Age'], 0, stock_component, alpha=0.6, color='red', label=f'Stocks ({self.stock_allocation*100:.0f}%)')
-        ax4.fill_between(df['Age'], stock_component, stock_component + bond_component, alpha=0.6, color='blue', label=f'Bonds ({self.bond_allocation*100:.0f}%)')
-        ax4.set_title('Portfolio Asset Allocation Over Time', fontsize=14, fontweight='bold')
+        # Chart 4: Portfolio Performance
+        ax4.plot(df['Age'], df['Portfolio'], color='teal', linewidth=3, label='Portfolio Balance')
+        ax4.fill_between(df['Age'], 0, df['Portfolio'], alpha=0.2, color='teal')
+        ax4.set_title('Portfolio Performance Over Time', fontsize=14, fontweight='bold')
         ax4.set_xlabel('Age')
         ax4.set_ylabel('Value ($)')
         ax4.legend()
@@ -663,12 +634,7 @@ def calculate():
             retirement_budget_ratio=float(data['retirement_budget_ratio']) / 100,
             retirement_phases=data['retirement_phases'],
             healthcare_costs=float(data['healthcare_costs']),
-            # New parameters
-            stock_allocation=float(data.get('stock_allocation', 70)) / 100,
-            bond_allocation=float(data.get('bond_allocation', 30)) / 100,
-            stock_volatility=float(data.get('stock_volatility', 16)) / 100,
-            bond_volatility=float(data.get('bond_volatility', 5)) / 100,
-            correlation=float(data.get('correlation', -10)) / 100,
+            portfolio_volatility=float(data.get('portfolio_volatility', 16)) / 100,
             random_seed=int(data.get('random_seed')) if data.get('random_seed') is not None else None,
             num_simulations=int(data.get('num_simulations', 10000)),
             investment_streams=investment_streams
@@ -705,6 +671,8 @@ def calculate():
         if ret_df is not None:
             ret_df = ret_df.reset_index(drop=True)
             for i, row in ret_df.iterrows():
+                if pd.isna(row.get('Age')):
+                    continue
                 beginning = float(ret_df.loc[i-1, 'Portfolio']) if i > 0 else float(row['Portfolio'])
                 withdrawal = float(row['Withdrawal']) if 'Withdrawal' in ret_df.columns and not pd.isna(row.get('Withdrawal', 0)) else 0.0
                 ending = float(row['Portfolio'])
@@ -776,8 +744,9 @@ def calculate():
         df = results['retirement_df']
         ending_values = results['ending_values']
         final_portfolio = df['Portfolio'].iloc[-1]
-        portfolio_survives = bool(final_portfolio > 0)
-        depletion_age = None if portfolio_survives else int(df.loc[df['Portfolio'] <= 0, 'Age'].min())
+        portfolio_survives = bool(pd.notna(final_portfolio) and final_portfolio > 0)
+        depleted_rows = df.loc[df['Portfolio'].fillna(0) <= 0, 'Age']
+        depletion_age = None if portfolio_survives else int(depleted_rows.min()) if not depleted_rows.empty else None
 
         # Additional statistics from Monte Carlo
         successful_endings = ending_values[ending_values > 0]
@@ -804,10 +773,6 @@ def calculate():
                     '10th_percentile': f"${percentiles['10th']:,.0f}",
                     '50th_percentile': f"${percentiles['50th']:,.0f}",
                     '90th_percentile': f"${percentiles['90th']:,.0f}"
-                },
-                'asset_allocation': {
-                    'stocks': f"{calculator.stock_allocation*100:.0f}%",
-                    'bonds': f"{calculator.bond_allocation*100:.0f}%"
                 },
                 'details': {
                     'pre_retirement': pre_table,
