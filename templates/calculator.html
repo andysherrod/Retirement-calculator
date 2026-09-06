@@ -129,9 +129,9 @@
 
                 <div class="section-title">Current Savings & Benefits</div>
                 <div class="form-row three-col">
-                    <div class="form-group"><label>Traditional (Pre-Tax)</label><input type="number" id="portfolio_traditional" required value="40000"></div>
-                    <div class="form-group"><label>Roth (Tax-Free)</label><input type="number" id="portfolio_roth" required value="10000"></div>
-                    <div class="form-group"><label>Taxable (Brokerage)</label><input type="number" id="portfolio_taxable" required value="0"></div>
+                    <div class="form-group"><label>Pre-Tax</label><input type="number" id="portfolio_traditional" required value="40000"></div>
+                    <div class="form-group"><label>Post-Tax</label><input type="number" id="portfolio_roth" required value="10000"></div>
+                    <div class="form-group"><label>Taxable</label><input type="number" id="portfolio_taxable" required value="0"></div>
                 </div>
                 <div class="form-group"><label>Expected Monthly Benefits (SSN/Pension)</label><input type="number" id="monthly_benefits" required value="2000"></div>
                 
@@ -262,7 +262,7 @@
             div.id = `stream-${streamCounter}`;
             div.innerHTML = `
                 <div class="stream-header">
-                    <input type="text" placeholder="Account Name (e.g. Traditional 401k)" class="stream-name" style="border:none; background:transparent; font-weight:bold; width: 70%;">
+                    <input type="text" placeholder="Account Name" class="stream-name" style="border:none; background:transparent; font-weight:bold; width: 70%;">
                     <button type="button" class="remove-stream" onclick="document.getElementById('stream-${streamCounter}').remove()">Remove</button>
                 </div>
                 <div class="form-row" style="margin-bottom:0;">
@@ -273,9 +273,9 @@
                     <div class="form-group" style="margin-bottom:0;">
                         <label style="font-size: 0.85em;">Tax Treatment</label>
                         <select class="stream-tax">
-                            <option value="traditional">Traditional (Pre-Tax)</option>
-                            <option value="roth">Roth (Tax-Free)</option>
-                            <option value="taxable">Taxable (Brokerage)</option>
+                            <option value="traditional">Pre-Tax</option>
+                            <option value="roth">Post-Tax</option>
+                            <option value="taxable">Taxable</option>
                         </select>
                     </div>
                 </div>
@@ -454,8 +454,8 @@
         function withdrawalBreakdown(row) {
             const breakdown = row.withdrawal_breakdown || {};
             const entries = [
-                ['Pre-Tax', breakdown.traditional],
-                ['Post-Tax', breakdown.roth],
+                    ['Pre-Tax', breakdown.traditional],
+                    ['Post-Tax', breakdown.roth],
                 ['Taxable', breakdown.taxable]
             ].filter(([, value]) => Number(value || 0) > 0);
             return entries.length
@@ -522,7 +522,7 @@
                 const taxPaid = Number(breakdown.tax_paid || 0);
                 const breakdownHtml = [
                     trad > 0 ? `<div><strong>Pre-tax:</strong> ${currency.format(trad)}</div>` : '',
-                    roth > 0 ? `<div><strong>Roth:</strong> ${currency.format(roth)}</div>` : '',
+                    roth > 0 ? `<div><strong>Post-Tax:</strong> ${currency.format(roth)}</div>` : '',
                     taxable > 0 ? `<div><strong>Taxable:</strong> ${currency.format(taxable)}</div>` : '',
                     taxPaid > 0 ? `<div style="color:#b91c1c;"><strong>Taxes:</strong> ${currency.format(taxPaid)}</div>` : ''
                 ].filter(Boolean).join('');
@@ -543,8 +543,25 @@
             return html;
         }
 
+        function buildScenarioReportTableRows(rows) {
+            let html = '<table style="width:100%; border-collapse: collapse; font-size: 13px; margin-top: 18px; color:#1f2937;">';
+            html += '<thead><tr style="background:#f8f9fa;">';
+            html += '<th style="padding:10px; border:1px solid #e5e7eb; text-align:left;">Age</th>';
+            html += '<th style="padding:10px; border:1px solid #e5e7eb; text-align:left;">Total Withdrawals</th>';
+            html += '<th style="padding:10px; border:1px solid #e5e7eb; text-align:left;">10th Percentile<br><small>Poor Market</small></th>';
+            html += '<th style="padding:10px; border:1px solid #e5e7eb; text-align:left;">50th Percentile<br><small>Median Market</small></th>';
+            html += '<th style="padding:10px; border:1px solid #e5e7eb; text-align:left;">90th Percentile<br><small>Strong Market</small></th>';
+            html += '</tr></thead><tbody>';
+            rows.forEach(row => {
+                html += `<tr><td style="padding:10px; border:1px solid #e5e7eb;">${row.Age}</td><td style="padding:10px; border:1px solid #e5e7eb;">${currency.format(row.Withdrawals)}</td><td style="padding:10px; border:1px solid #e5e7eb;">${currency.format(row.p10)}</td><td style="padding:10px; border:1px solid #e5e7eb;">${currency.format(row.p50)}</td><td style="padding:10px; border:1px solid #e5e7eb;">${currency.format(row.p90)}</td></tr>`;
+            });
+            html += '</tbody></table>';
+            return html;
+        }
+
         function openReportWindow() {
-            if (!fullTableData.length) return;
+            const reportRows = tableView === 'scenarios' ? scenarioTableData : fullTableData;
+            if (!reportRows.length) return;
 
             const reportWindow = window.open('', '_blank', 'width=1200,height=900');
             if (!reportWindow) {
@@ -604,7 +621,7 @@
                         </div>
 
                         <h2 style="margin-top: 24px;">Year-by-Year Details</h2>
-                        ${buildReportTableRows(fullTableData)}
+                        ${tableView === 'scenarios' ? buildScenarioReportTableRows(reportRows) : buildReportTableRows(reportRows)}
 
                         <div class="report-actions">
                             <button onclick="window.print()">Print This Report</button>
