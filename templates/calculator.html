@@ -52,11 +52,13 @@
         .loading.show { display: block; }
         .print-btn { background: #2c3e50; color: white; border: none; padding: 12px 18px; border-radius: 10px; cursor: pointer; font-weight: 600; }
         .print-btn:hover { opacity: 0.95; }
+        .report-btn { background: linear-gradient(135deg, #2c3e50 0%, #4a5d8a 100%); color: white; border: none; padding: 12px 18px; border-radius: 10px; cursor: pointer; font-weight: 600; }
+        .report-btn:hover { opacity: 0.95; }
 
         @media print {
             body { background: white; padding: 0; }
             .container { max-width: none; width: 100%; box-shadow: none; border-radius: 0; padding: 0; overflow: visible; }
-            .secondary-btn, .primary-btn, .print-btn, .add-stream-btn, .remove-stream, .toggle-button, #toggleTableBtn { display: none !important; }
+            .secondary-btn, .primary-btn, .print-btn, .report-btn, .add-stream-btn, .remove-stream, .toggle-button, #toggleTableBtn { display: none !important; }
             #step2, #step3, #step1 { display: none !important; }
             #step4 { display: block !important; }
             .header-text { margin-bottom: 10px; }
@@ -200,7 +202,8 @@
 
             <div style="display: flex; gap: 15px; margin-top: 30px; flex-wrap: wrap;">
                 <button class="secondary-btn" style="margin-top: 0;" onclick="goToStep('step3')">Adjust Strategy</button>
-                <button class="print-btn" style="margin-top: 0;" onclick="window.print()">Print Report</button>
+                <button class="report-btn" style="margin-top: 0;" onclick="openReportWindow()">Open Report</button>
+                <button class="print-btn" style="margin-top: 0;" onclick="window.print()">Print</button>
                 <button class="primary-btn" style="margin-top: 0;" onclick="goToStep('step1')">Start Over</button>
             </div>
         </div>
@@ -401,6 +404,119 @@
             });
             html += '</tbody></table>';
             container.innerHTML = html;
+        }
+
+        function buildReportTableRows(rows) {
+            let html = '<table style="width:100%; border-collapse: collapse; font-size: 13px; margin-top: 18px; color:#1f2937;">';
+            html += '<thead><tr style="background:#f8f9fa;">';
+            html += '<th style="padding:10px; border:1px solid #e5e7eb; text-align:left;">Age</th>';
+            html += '<th style="padding:10px; border:1px solid #e5e7eb; text-align:left;">Beginning Balance</th>';
+            html += '<th style="padding:10px; border:1px solid #e5e7eb; text-align:left;">Contributions</th>';
+            html += '<th style="padding:10px; border:1px solid #e5e7eb; text-align:left;">Interest</th>';
+            html += '<th style="padding:10px; border:1px solid #e5e7eb; text-align:left;">Account Withdrawals</th>';
+            html += '<th style="padding:10px; border:1px solid #e5e7eb; text-align:left;">Ending Balance</th>';
+            html += '</tr></thead><tbody>';
+
+            rows.forEach(row => {
+                const breakdown = row.withdrawal_breakdown || {};
+                const trad = Number(breakdown.traditional || 0);
+                const roth = Number(breakdown.roth || 0);
+                const taxable = Number(breakdown.taxable || 0);
+                const taxPaid = Number(breakdown.tax_paid || 0);
+                const breakdownHtml = [
+                    trad > 0 ? `<div><strong>Pre-tax:</strong> ${currency.format(trad)}</div>` : '',
+                    roth > 0 ? `<div><strong>Roth:</strong> ${currency.format(roth)}</div>` : '',
+                    taxable > 0 ? `<div><strong>Taxable:</strong> ${currency.format(taxable)}</div>` : '',
+                    taxPaid > 0 ? `<div style="color:#b91c1c;"><strong>Taxes:</strong> ${currency.format(taxPaid)}</div>` : ''
+                ].filter(Boolean).join('');
+
+                html += `<tr>`;
+                html += `<td style="padding:10px; border:1px solid #e5e7eb;">${row.Age}</td>`;
+                html += `<td style="padding:10px; border:1px solid #e5e7eb;">${currency.format(row.Investment_Amount)}</td>`;
+                html += `<td style="padding:10px; border:1px solid #e5e7eb; color:#16a34a;">+${currency.format(row.Contributions)}</td>`;
+                html += `<td style="padding:10px; border:1px solid #e5e7eb; color:#2563eb;">+${currency.format(row.Interest_Earned)}</td>`;
+                html += `<td style="padding:10px; border:1px solid #e5e7eb; color:#dc2626;">-${currency.format(row.Withdrawals)}<div style="margin-top:6px; line-height:1.6; font-size:12px;">${breakdownHtml || 'No withdrawals'}</div></td>`;
+                html += `<td style="padding:10px; border:1px solid #e5e7eb; font-weight:bold;">${currency.format(row.Ending_Balance)}</td>`;
+                html += `</tr>`;
+            });
+            html += '</tbody></table>';
+            return html;
+        }
+
+        function openReportWindow() {
+            if (!fullTableData.length) return;
+
+            const reportWindow = window.open('', '_blank', 'width=1200,height=900');
+            if (!reportWindow) {
+                alert('Please allow pop-ups to open the report window.');
+                return;
+            }
+
+            const chartSrc = document.getElementById('finalChart').src;
+            const titleEl = document.getElementById('final-probability');
+            const budgetEl = document.getElementById('sum-budget');
+            const totalInvestedEl = document.getElementById('sum-total-invested');
+            const taxCurrentEl = document.getElementById('sum-tax-current');
+            const taxRetirementEl = document.getElementById('sum-tax-retirement');
+            const returnEl = document.getElementById('sum-return');
+            const inflationEl = document.getElementById('sum-inflation');
+            const withdrawalEl = document.getElementById('sum-withdrawal-rate');
+
+            const reportHtml = `
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>Retirement Report</title>
+                    <style>
+                        body { font-family: 'Segoe UI', Tahoma, sans-serif; margin: 0; background: #f8fafc; color: #1f2937; }
+                        .report-shell { max-width: 1100px; margin: 32px auto; background: white; padding: 28px; border-radius: 14px; box-shadow: 0 12px 30px rgba(15,23,42,0.08); }
+                        h1 { margin: 0 0 8px; font-size: 30px; color: #111827; }
+                        .subtitle { font-size: 16px; color: #4b5563; margin-bottom: 20px; }
+                        .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 24px; }
+                        .summary-box { background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 12px; padding: 14px; }
+                        .summary-box .label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: #6b7280; }
+                        .summary-box .value { margin-top: 8px; font-size: 18px; font-weight: 700; color: #111827; }
+                        .chart-wrap { margin: 26px 0; text-align: center; }
+                        .chart-wrap img { max-width: 100%; border: 1px solid #e5e7eb; border-radius: 10px; background: white; }
+                        .report-actions { margin: 18px 0 0; }
+                        button { background: #2c3e50; color: white; border: none; border-radius: 8px; padding: 10px 16px; cursor: pointer; font-weight: 600; }
+                        @media print { body { background: white; } .report-shell { box-shadow: none; border: none; margin: 0; padding: 0; } .report-actions { display: none; } }
+                    </style>
+                </head>
+                <body>
+                    <div class="report-shell">
+                        <h1>Retirement Strategy Report</h1>
+                        <div class="subtitle">Prepared for ${baseData.name || 'Client'}</div>
+
+                        <div class="summary-grid">
+                            <div class="summary-box"><div class="label">Target Budget</div><div class="value">${budgetEl ? budgetEl.textContent : '$0'}</div></div>
+                            <div class="summary-box"><div class="label">Total Out-of-Pocket</div><div class="value">${totalInvestedEl ? totalInvestedEl.textContent : '$0'}</div></div>
+                            <div class="summary-box"><div class="label">Current Tax Rate</div><div class="value">${taxCurrentEl ? taxCurrentEl.textContent : '0%'}</div></div>
+                            <div class="summary-box"><div class="label">Retirement Tax Rate</div><div class="value">${taxRetirementEl ? taxRetirementEl.textContent : '0%'}</div></div>
+                            <div class="summary-box"><div class="label">Expected Return</div><div class="value">${returnEl ? returnEl.textContent : '0%'}</div></div>
+                            <div class="summary-box"><div class="label">Inflation</div><div class="value">${inflationEl ? inflationEl.textContent : '0%'}</div></div>
+                            <div class="summary-box"><div class="label">Withdrawal Rate</div><div class="value">${withdrawalEl ? withdrawalEl.textContent : '0%'}</div></div>
+                            <div class="summary-box"><div class="label">Simulation Result</div><div class="value">${titleEl ? titleEl.textContent : 'N/A'}</div></div>
+                        </div>
+
+                        <div class="chart-wrap">
+                            <img src="${chartSrc}" alt="Retirement chart" />
+                        </div>
+
+                        <h2 style="margin-top: 24px;">Year-by-Year Details</h2>
+                        ${buildReportTableRows(fullTableData)}
+
+                        <div class="report-actions">
+                            <button onclick="window.print()">Print This Report</button>
+                        </div>
+                    </div>
+                </body>
+                </html>
+            `;
+
+            reportWindow.document.write(reportHtml);
+            reportWindow.document.close();
+            reportWindow.focus();
         }
 
         function toggleTableLength() { showingAllRows = !showingAllRows; renderTable(); }
