@@ -50,6 +50,19 @@
         .detail-table tr:nth-child(even) { background: #fbfdff; }
         .loading { display: none; text-align: center; padding: 20px; }
         .loading.show { display: block; }
+        .print-btn { background: #2c3e50; color: white; border: none; padding: 12px 18px; border-radius: 10px; cursor: pointer; font-weight: 600; }
+        .print-btn:hover { opacity: 0.95; }
+
+        @media print {
+            body { background: white; padding: 0; }
+            .container { max-width: none; width: 100%; box-shadow: none; border-radius: 0; padding: 0; overflow: visible; }
+            .secondary-btn, .primary-btn, .print-btn, .add-stream-btn, .remove-stream, .toggle-button, #toggleTableBtn { display: none !important; }
+            #step2, #step3, #step1 { display: none !important; }
+            #step4 { display: block !important; }
+            .header-text { margin-bottom: 10px; }
+            .assumptions-box { border: 1px solid #e9ecef; }
+            .explanation-box { background: white; border: 1px solid #e9ecef; }
+        }
         
         @media (max-width: 768px) {
             .form-row, .form-row.three-col, .results-grid { grid-template-columns: 1fr; }
@@ -82,6 +95,11 @@
                         </select>
                     </div>
                     <div class="form-group"><label>Target Monthly Budget ($)</label><input type="number" id="monthly_budget" required value="5000"></div>
+                </div>
+
+                <div class="form-group" style="margin-bottom: 15px;">
+                    <label>Current Annual Income ($)</label>
+                    <input type="number" id="current_annual_income" required value="150000">
                 </div>
 
                 <div class="section-title">Current Savings & Benefits</div>
@@ -159,7 +177,8 @@
             <div class="assumptions-box">
                 <div><strong>Target Budget:</strong> <span id="sum-budget"></span></div>
                 <div><strong>Total Out-of-Pocket:</strong> <span id="sum-total-invested" style="color:#219ebc; font-weight:bold;"></span></div>
-                <div><strong>Effective Tax Rate:</strong> <span id="sum-tax"></span></div>
+                <div><strong>Current Effective Tax Rate:</strong> <span id="sum-tax-current"></span></div>
+                <div><strong>Projected Retirement Tax Rate:</strong> <span id="sum-tax-retirement"></span></div>
                 <div><strong>Expected Return:</strong> <span id="sum-return"></span></div>
                 <div><strong>Inflation:</strong> <span id="sum-inflation"></span></div>
                 <div><strong>Initial Withdrawal Rate:</strong> <span id="sum-withdrawal-rate" style="font-weight:bold;"></span></div>
@@ -179,8 +198,9 @@
             
             <div id="table-container" style="max-height: 400px; overflow-y: auto; border: 1px solid #e9ecef; border-radius: 10px; margin-top: 15px;"></div>
 
-            <div style="display: flex; gap: 15px; margin-top: 30px;">
+            <div style="display: flex; gap: 15px; margin-top: 30px; flex-wrap: wrap;">
                 <button class="secondary-btn" style="margin-top: 0;" onclick="goToStep('step3')">Adjust Strategy</button>
+                <button class="print-btn" style="margin-top: 0;" onclick="window.print()">Print Report</button>
                 <button class="primary-btn" style="margin-top: 0;" onclick="goToStep('step1')">Start Over</button>
             </div>
         </div>
@@ -249,6 +269,7 @@
                 name: document.getElementById('name').value,
                 filing_status: document.getElementById('filing_status').value,
                 monthly_budget: parseFloat(document.getElementById('monthly_budget').value),
+                current_annual_income: parseFloat(document.getElementById('current_annual_income').value),
                 age_current: parseInt(document.getElementById('age_current').value),
                 age_retire: parseInt(document.getElementById('age_retire').value),
                 portfolio_traditional: parseFloat(document.getElementById('portfolio_traditional').value),
@@ -267,7 +288,7 @@
             
             if (result.success) {
                 document.getElementById('greeting').innerText = `${result.data.name}, here is your outlook.`;
-                
+
                 document.getElementById('target-income').innerText = currency.format(result.data.target_income_future);
                 document.getElementById('projected-income').innerText = currency.format(result.data.projected_income_future);
 
@@ -306,7 +327,8 @@
             if (result.success) {
                 document.getElementById('sum-budget').innerText = currency.format(baseData.monthly_budget * 12) + "/yr";
                 document.getElementById('sum-total-invested').innerText = currency.format(result.results.total_invested);
-                document.getElementById('sum-tax').innerText = result.results.effective_tax_rate.toFixed(1) + "%";
+                document.getElementById('sum-tax-current').innerText = (result.results.current_effective_tax_rate ?? result.results.effective_tax_rate).toFixed(1) + "%";
+                document.getElementById('sum-tax-retirement').innerText = (result.results.projected_retirement_tax_rate ?? result.results.effective_tax_rate).toFixed(1) + "%";
                 document.getElementById('sum-return').innerText = baseData.expected_return + "%";
                 document.getElementById('sum-inflation').innerText = baseData.inflation_rate + "%";
 
@@ -360,9 +382,22 @@
             const dataToRender = showingAllRows ? fullTableData : fullTableData.slice(0, 10);
             document.getElementById('toggleTableBtn').innerText = showingAllRows ? "Show 10 Rows" : "Show All Rows";
 
-            let html = '<table class="detail-table"><thead><tr><th>Age</th><th>Beginning Balance</th><th>Contributions</th><th>Interest</th><th>Gross Withdrawals</th><th>Ending Balance</th></tr></thead><tbody>';
+            let html = '<table class="detail-table"><thead><tr><th>Age</th><th>Beginning Balance</th><th>Contributions</th><th>Interest</th><th>Account Withdrawals</th><th>Ending Balance</th></tr></thead><tbody>';
             dataToRender.forEach(row => {
-                html += `<tr><td>${row.Age}</td><td>${currency.format(row.Investment_Amount)}</td><td style="color: green;">+${currency.format(row.Contributions)}</td><td style="color: blue;">+${currency.format(row.Interest_Earned)}</td><td style="color: red;">-${currency.format(row.Withdrawals)}</td><td style="font-weight: bold;">${currency.format(row.Ending_Balance)}</td></tr>`;
+                const breakdown = row.withdrawal_breakdown || {};
+                const trad = Number(breakdown.traditional || 0);
+                const roth = Number(breakdown.roth || 0);
+                const taxable = Number(breakdown.taxable || 0);
+                const taxPaid = Number(breakdown.tax_paid || 0);
+
+                const breakdownHtml = [
+                    trad > 0 ? `<div><strong>Pre-tax:</strong> ${currency.format(trad)}</div>` : '',
+                    roth > 0 ? `<div><strong>Roth:</strong> ${currency.format(roth)}</div>` : '',
+                    taxable > 0 ? `<div><strong>Taxable:</strong> ${currency.format(taxable)}</div>` : '',
+                    taxPaid > 0 ? `<div style="color:#c0392b;"><strong>Taxes:</strong> ${currency.format(taxPaid)}</div>` : ''
+                ].filter(Boolean).join('');
+
+                html += `<tr><td>${row.Age}</td><td>${currency.format(row.Investment_Amount)}</td><td style="color: green;">+${currency.format(row.Contributions)}</td><td style="color: blue;">+${currency.format(row.Interest_Earned)}</td><td style="color: red;">-${currency.format(row.Withdrawals)}<div style="margin-top: 6px; font-size: 11px; line-height: 1.6;">${breakdownHtml || 'No withdrawals'}</div></td><td style="font-weight: bold;">${currency.format(row.Ending_Balance)}</td></tr>`;
             });
             html += '</tbody></table>';
             container.innerHTML = html;

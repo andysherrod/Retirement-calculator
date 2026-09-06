@@ -15,34 +15,63 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
+TAX_CONFIG = {
+    'single': {
+        'standard_deduction': 14600,
+        'brackets': [
+            (11600, 0.10),
+            (47150, 0.12),
+            (100525, 0.22),
+            (191950, 0.24),
+            (243725, 0.32),
+            (609350, 0.35),
+            (float('inf'), 0.37),
+        ],
+    },
+    'married': {
+        'standard_deduction': 29200,
+        'brackets': [
+            (23200, 0.10),
+            (94300, 0.12),
+            (201050, 0.22),
+            (383900, 0.24),
+            (487450, 0.32),
+            (731200, 0.35),
+            (float('inf'), 0.37),
+        ],
+    },
+}
+
 @dataclass
 class InvestmentStream:
     name: str
     annual_contribution: float
     tax_treatment: str
 
-def calculate_effective_tax(target_budget, filing_status='married'):
-    if filing_status == 'single':
-        std_deduction = 14600
-        brackets = [(11600, 0.10), (47150, 0.12), (100525, 0.22), (191950, 0.24), (243725, 0.32), (609350, 0.35), (float('inf'), 0.37)]
-    else: 
-        std_deduction = 29200
-        brackets = [(23200, 0.10), (94300, 0.12), (201050, 0.22), (383900, 0.24), (487450, 0.32), (731200, 0.35), (float('inf'), 0.37)]
 
-    taxable_income = max(0, target_budget - std_deduction)
-    if taxable_income <= 0: return 0.0
+def calculate_tax_liability(annual_income, filing_status='married'):
+    config = TAX_CONFIG.get(filing_status, TAX_CONFIG['married'])
+    standard_deduction = config['standard_deduction']
+    taxable_income = max(0.0, annual_income - standard_deduction)
+    if annual_income <= 0:
+        return 0.0, 0.0
 
-    total_tax = 0
-    prev_limit = 0
-    for limit, rate in brackets:
-        if taxable_income > prev_limit:
-            taxed_amt = min(taxable_income, limit) - prev_limit
-            total_tax += taxed_amt * rate
-            prev_limit = limit
-        else:
+    total_tax = 0.0
+    prev_limit = 0.0
+    for limit, rate in config['brackets']:
+        if taxable_income <= prev_limit:
             break
-            
-    return total_tax / target_budget
+        taxed_amt = min(taxable_income, limit) - prev_limit
+        total_tax += taxed_amt * rate
+        prev_limit = limit
+
+    effective_rate = total_tax / annual_income
+    return total_tax, effective_rate
+
+
+def calculate_effective_tax(target_budget, filing_status='married'):
+    _, effective_rate = calculate_tax_liability(target_budget, filing_status)
+    return effective_rate
 
 class EnhancedRetirementCalculator:
     def __init__(self, age_current, age_retire, trad_start, roth_start, tax_start, 
@@ -142,29 +171,31 @@ class EnhancedRetirementCalculator:
             net_needed = max(0, annual_budget - annual_benefit)
             
             gross_withdrawal = 0
-            
+
             draw_tax = min(cur_tax, net_needed)
             cur_tax -= draw_tax
             net_needed -= draw_tax
             gross_withdrawal += draw_tax
-            
+
+            draw_roth = min(cur_roth, net_needed)
+            cur_roth -= draw_roth
+            net_needed -= draw_roth
+            gross_withdrawal += draw_roth
+
             trad_gross_needed = net_needed / (1 - self.effective_tax_rate) if self.effective_tax_rate < 1 else 0
             draw_trad = min(cur_trad, trad_gross_needed)
             cur_trad -= draw_trad
             net_needed -= draw_trad * (1 - self.effective_tax_rate)
             gross_withdrawal += draw_trad
-            
-            draw_roth = min(cur_roth, net_needed)
-            cur_roth -= draw_roth
-            gross_withdrawal += draw_roth
-            
+
             int_trad = cur_trad * self.expected_return
             int_roth = cur_roth * self.expected_return
             int_tax = cur_tax * self.expected_return
-            
-            cur_trad += int_trad
+
             cur_roth += int_roth
             cur_tax += int_tax
+
+            tax_paid = draw_trad * self.effective_tax_rate
 
             combined_table.append({
                 'Year': years_to_retire + year,
@@ -172,7 +203,13 @@ class EnhancedRetirementCalculator:
                 'Investment_Amount': beginning,
                 'Contributions': 0.0,
                 'Interest_Earned': int_trad + int_roth + int_tax,
-                'Withdrawals': gross_withdrawal, 
+                'Withdrawals': gross_withdrawal,
+                'withdrawal_breakdown': {
+                    'traditional': draw_trad,
+                    'roth': draw_roth,
+                    'taxable': draw_tax,
+                    'tax_paid': tax_paid
+                },
                 'Ending_Balance': cur_trad + cur_roth + cur_tax
             })
 
@@ -210,15 +247,16 @@ class EnhancedRetirementCalculator:
             draw_tax = np.minimum(ret_tax[:, yr], net_needed)
             ret_tax[:, yr] -= draw_tax
             net_needed -= draw_tax
-            
+
+            draw_roth = np.minimum(ret_roth[:, yr], net_needed)
+            ret_roth[:, yr] -= draw_roth
+            net_needed -= draw_roth
+
             trad_gross_needed = net_needed / (1 - self.effective_tax_rate)
             draw_trad = np.minimum(ret_trad[:, yr], trad_gross_needed)
             ret_trad[:, yr] -= draw_trad
             net_needed -= draw_trad * (1 - self.effective_tax_rate)
-            
-            draw_roth = np.minimum(ret_roth[:, yr], net_needed)
-            ret_roth[:, yr] -= draw_roth
-            
+
             ret_multiplier = 1 + ret_returns[:, yr]
             ret_trad[:, yr+1] = ret_trad[:, yr] * ret_multiplier
             ret_roth[:, yr+1] = ret_roth[:, yr] * ret_multiplier
@@ -297,24 +335,26 @@ def calculate_gap():
     monthly_budget = float(data.get('monthly_budget', 5000))
     monthly_benefits = float(data.get('monthly_benefits', 0))
     filing_status = data.get('filing_status', 'married')
-    
+    current_annual_income = float(data.get('current_annual_income', data.get('annual_income', monthly_budget * 12)))
+
     trad_start = float(data.get('portfolio_traditional', 0))
     roth_start = float(data.get('portfolio_roth', 0))
     tax_start = float(data.get('portfolio_taxable', 0))
     total_start = trad_start + roth_start + tax_start
-    
+
     expected_return = float(data.get('expected_return', 7.0)) / 100
     inflation_rate = float(data.get('inflation_rate', 2.5)) / 100
 
     years_to_retire = max(0, age_retire - age_current)
 
     target_income_today = monthly_budget * 12
-    effective_tax_rate = calculate_effective_tax(target_income_today, filing_status)
+    current_effective_tax_rate = calculate_effective_tax(current_annual_income, filing_status)
     target_income_future = target_income_today * ((1 + inflation_rate) ** years_to_retire)
+    projected_retirement_tax_rate = calculate_effective_tax(target_income_future, filing_status)
 
     future_portfolio = total_start * ((1 + expected_return) ** years_to_retire)
     blended_withdrawal_rate = 0.04
-    projected_net_from_portfolio = (future_portfolio * blended_withdrawal_rate) * (1 - (effective_tax_rate * (trad_start / max(total_start, 1))))
+    projected_net_from_portfolio = (future_portfolio * blended_withdrawal_rate) * (1 - (projected_retirement_tax_rate * (trad_start / max(total_start, 1))))
     projected_income_future = projected_net_from_portfolio + (monthly_benefits * 12)
 
     shortfall = target_income_future - projected_income_future
@@ -323,13 +363,13 @@ def calculate_gap():
     required_monthly_investment = 0
     if not is_on_track and years_to_retire > 0:
         target_additional_portfolio = shortfall / blended_withdrawal_rate
-        
+
         rng = np.random.default_rng(None)
         portfolio_returns = rng.normal(expected_return, 0.12, size=(10000, years_to_retire))
         current_bals = np.zeros(10000)
         for yr in range(years_to_retire):
             current_bals = (current_bals + 1.0) * (1 + portfolio_returns[:, yr])
-        
+
         median_multiplier = np.median(current_bals)
         if median_multiplier > 0:
             required_yearly = target_additional_portfolio / median_multiplier
@@ -341,7 +381,9 @@ def calculate_gap():
             'name': name,
             'expected_return': expected_return * 100,
             'inflation_rate': inflation_rate * 100,
-            'effective_tax_rate': effective_tax_rate * 100,
+            'current_effective_tax_rate': current_effective_tax_rate * 100,
+            'projected_retirement_tax_rate': projected_retirement_tax_rate * 100,
+            'effective_tax_rate': current_effective_tax_rate * 100,
             'target_income_future': target_income_future,
             'projected_income_future': projected_income_future,
             'shortfall': max(0, shortfall),
@@ -355,7 +397,7 @@ def calculate_gap():
 def calculate_advanced():
     try:
         data = request.get_json()
-        
+
         investment_streams = []
         if 'investment_streams' in data:
             for stream_data in data['investment_streams']:
@@ -367,7 +409,10 @@ def calculate_advanced():
                 investment_streams.append(stream)
 
         target_budget_today = float(data['monthly_budget']) * 12
-        effective_tax_rate = calculate_effective_tax(target_budget_today, data.get('filing_status', 'married'))
+        filing_status = data.get('filing_status', 'married')
+        current_annual_income = float(data.get('current_annual_income', data.get('annual_income', target_budget_today)))
+        current_effective_tax_rate = calculate_effective_tax(current_annual_income, filing_status)
+        projected_retirement_tax_rate = calculate_effective_tax(target_budget_today * ((1 + float(data['inflation_rate']) / 100) ** max(0, int(data['age_retire']) - int(data['age_current']))), filing_status)
 
         calculator = EnhancedRetirementCalculator(
             age_current=int(data['age_current']),
@@ -380,7 +425,7 @@ def calculate_advanced():
             monthly_benefits=float(data['monthly_benefits']),
             expected_return=float(data['expected_return']) / 100,
             inflation_rate=float(data['inflation_rate']) / 100,
-            effective_tax_rate=effective_tax_rate
+            effective_tax_rate=current_effective_tax_rate
         )
 
         results = calculator.calculate()
@@ -393,7 +438,9 @@ def calculate_advanced():
                 'chart': chart,
                 'combined_table': results['combined_table'],
                 'initial_withdrawal_rate': results['initial_withdrawal_rate'],
-                'effective_tax_rate': effective_tax_rate * 100,
+                'current_effective_tax_rate': current_effective_tax_rate * 100,
+                'projected_retirement_tax_rate': projected_retirement_tax_rate * 100,
+                'effective_tax_rate': current_effective_tax_rate * 100,
                 'total_invested': results['total_invested']
             }
         })
