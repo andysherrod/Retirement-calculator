@@ -155,6 +155,7 @@ class EnhancedRetirementCalculator:
             pre_retirement_df.loc[year, 'Portfolio'] = sum(buckets[key] for key in ('roth', 'traditional', 'taxable'))
 
         future_portfolio = pre_retirement_df.loc[years_until_retirement, 'Portfolio']
+        retirement_start_buckets = buckets.copy()
 
         # Run Monte Carlo for pre-retirement (accumulation) phase
         pre_retirement_contributions = pre_retirement_df.loc[1:years_until_retirement, 'Yearly_Contribution'].values
@@ -220,7 +221,7 @@ class EnhancedRetirementCalculator:
         # Enhanced Monte Carlo with vectorized operations
         success_probability, ending_values, median_path = self.monte_carlo_simulation_vectorized(
             future_portfolio, retirement_years, years_until_retirement,
-            initial_retirement_budget, spending_adjustments, buckets
+            initial_retirement_budget, spending_adjustments, retirement_start_buckets
         )
 
         return {
@@ -713,6 +714,9 @@ def calculate():
                 'Contributions': contributions,
                 'Interest_Earned': interest,
                 'Withdrawals': 0.0,
+                'Taxable_Withdrawal': 0.0,
+                'Traditional_Withdrawal': 0.0,
+                'Roth_Withdrawal': 0.0,
                 'Ending_Balance': ending
             })
             year_counter += 1
@@ -736,6 +740,9 @@ def calculate():
                 'Contributions': 0.0,
                 'Interest_Earned': interest,
                 'Withdrawals': withdrawals,
+                'Taxable_Withdrawal': float(row.get('Taxable_Withdrawal', 0.0)),
+                'Traditional_Withdrawal': float(row.get('Traditional_Withdrawal', 0.0)),
+                'Roth_Withdrawal': float(row.get('Roth_Withdrawal', 0.0)),
                 'Ending_Balance': ending
             })
             year_counter += 1

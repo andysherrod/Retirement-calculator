@@ -507,10 +507,11 @@
                         <div class="form-group">
                             <label for="account_type">Primary Account Type <span class="tooltip" data-tooltip="Primary account type for tax calculations">ℹ</span></label>
                             <select id="account_type" name="account_type" required>
-                                <option value="Roth IRA/401k">Roth IRA/401k</option>
-                                <option value="Traditional IRA/401k">Traditional IRA/401k</option>
-                                <option value="Taxable Account">Taxable Account</option>
+                                <option value="Roth IRA/401k">Roth IRA/401k (after-tax)</option>
+                                <option value="Traditional IRA/401k">Traditional IRA/401k (pre-tax)</option>
+                                <option value="Taxable Account">Taxable Account (after-tax gains)</option>
                             </select>
+                            <small>Used for the current portfolio and contributions when no investment streams are added.</small>
                         </div>
                         <div class="form-group">
                             <label for="tax_rate">Effective Tax Rate (%) <span class="tooltip" data-tooltip="Expected tax rate on withdrawals">ℹ</span></label>
@@ -607,6 +608,10 @@
                         </div>
                     </div>
 
+                    <p style="margin: -10px 0 20px; color: #666; font-size: 0.9em;">
+                        Retirement withdrawals use taxable assets first, then traditional tax-deferred assets, then Roth assets. Traditional withdrawals are taxed at the effective tax rate; taxable withdrawals are taxed only on their investment gains.
+                    </p>
+
                     <div id="tabDetailsContent" style="display:none;">
                         <div class="section-title">Year-by-Year Details</div>
 
@@ -652,9 +657,9 @@
                     <div class="form-group">
                         <label>Tax Treatment</label>
                         <select class="stream-tax-treatment">
-                            <option value="roth">Roth (Tax-Free)</option>
-                            <option value="traditional">Traditional (Tax-Deferred)</option>
-                            <option value="taxable">Taxable</option>
+                            <option value="roth">Roth (after-tax, tax-free withdrawals)</option>
+                            <option value="traditional">Traditional (pre-tax, tax-deferred)</option>
+                            <option value="taxable">Taxable (after-tax gains)</option>
                         </select>
                     </div>
                     <div class="form-group">
@@ -898,7 +903,7 @@
             }
 
             // Render combined table (first 10 rows preview by default)
-            renderTable('combinedTableContainer', combined, ['Year', 'Age', 'Investment_Amount', 'Contributions', 'Interest_Earned', 'Withdrawals', 'Ending_Balance'], 10);
+            renderTable('combinedTableContainer', combined, ['Year', 'Age', 'Investment_Amount', 'Contributions', 'Interest_Earned', 'Withdrawals', 'Taxable_Withdrawal', 'Traditional_Withdrawal', 'Roth_Withdrawal', 'Ending_Balance'], 10);
 
             // Add visible count and small JSON preview
             try {
@@ -925,7 +930,7 @@
             try {
                 const showBtn = document.getElementById('combinedShowToggle');
                 if (showBtn) {
-                    showBtn.onclick = function() { toggleShowAll('combinedTableContainer', combined, ['Year', 'Age', 'Investment_Amount', 'Contributions', 'Interest_Earned', 'Withdrawals', 'Ending_Balance'], this); };
+                    showBtn.onclick = function() { toggleShowAll('combinedTableContainer', combined, ['Year', 'Age', 'Investment_Amount', 'Contributions', 'Interest_Earned', 'Withdrawals', 'Taxable_Withdrawal', 'Traditional_Withdrawal', 'Roth_Withdrawal', 'Ending_Balance'], this); };
                 } else console.warn('combinedShowToggle not found');
 
                 const csvBtn = document.getElementById('combinedCsv');
