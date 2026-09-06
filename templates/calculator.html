@@ -48,6 +48,22 @@
         .detail-table th { background: #f8f9fa; padding: 10px; text-align: left; border-bottom: 2px solid #e9ecef; }
         .detail-table td { padding: 10px; border-bottom: 1px solid #e9ecef; }
         .detail-table tr:nth-child(even) { background: #fbfdff; }
+        .table-controls { display: flex; justify-content: space-between; align-items: center; gap: 15px; flex-wrap: wrap; margin-top: 20px; }
+        .view-toggle { display: inline-flex; align-items: center; gap: 10px; color: #2c3e50; font-weight: 600; }
+        .view-toggle input { width: 42px; height: 22px; appearance: none; background: #cbd5e1; border-radius: 999px; padding: 0; cursor: pointer; position: relative; transition: background 0.2s ease; }
+        .view-toggle input::before { content: ''; position: absolute; width: 18px; height: 18px; top: 2px; left: 2px; border-radius: 50%; background: white; transition: transform 0.2s ease; box-shadow: 0 1px 3px rgba(0,0,0,0.25); }
+        .view-toggle input:checked { background: #667eea; }
+        .view-toggle input:checked::before { transform: translateX(20px); }
+        .decade-row td { padding: 0; background: #eef2ff; border-bottom: 1px solid #dbe4ff; }
+        .decade-toggle { width: 100%; padding: 11px 12px; border: 0; background: transparent; color: #2c3e50; text-align: left; font-weight: 700; cursor: pointer; }
+        .decade-group { margin-bottom: 10px; border: 1px solid #e9ecef; border-radius: 8px; overflow: hidden; }
+        .decade-group .detail-table { margin-top: 0; table-layout: fixed; }
+        .decade-group .detail-table th, .decade-group .detail-table td { overflow-wrap: anywhere; vertical-align: top; }
+        .decade-group .detail-table th:nth-child(1), .decade-group .detail-table td:nth-child(1) { width: 8%; }
+        .decade-group .detail-table th:nth-child(2), .decade-group .detail-table td:nth-child(2) { width: 14%; }
+        .decade-group .detail-table th:nth-child(3), .decade-group .detail-table td:nth-child(3) { width: 20%; }
+        .decade-group .detail-table th:nth-child(n+4), .decade-group .detail-table td:nth-child(n+4) { width: 14.5%; }
+        .currency-value { white-space: nowrap; }
         .loading { display: none; text-align: center; padding: 20px; }
         .loading.show { display: block; }
         .print-btn { background: #2c3e50; color: white; border: none; padding: 12px 18px; border-radius: 10px; cursor: pointer; font-weight: 600; }
@@ -193,8 +209,9 @@
             
             <img id="finalChart" src="" alt="Monte Carlo Analysis Chart" style="width: 100%;">
             
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 20px;">
+            <div class="table-controls">
                 <h3 style="color: #2c3e50;">Year-by-Year Details</h3>
+                <label class="view-toggle">View: Account Balances | Market Scenarios <input type="checkbox" id="tableViewToggle" onchange="setTableView(this.checked ? 'scenarios' : 'accounts')" aria-label="Toggle account balances and market scenarios"></label>
                 <button class="secondary-btn" style="width: auto; margin: 0; padding: 8px 15px;" onclick="toggleTableLength()" id="toggleTableBtn">Show All Rows</button>
             </div>
             
@@ -215,6 +232,8 @@
         let baseData = {};
         let streamCounter = 0;
         let fullTableData = [];
+        let scenarioTableData = [];
+        let tableView = 'accounts';
         let showingAllRows = false;
 
         function goToStep(stepId) {
@@ -372,6 +391,9 @@
                 document.getElementById('finalChart').src = 'data:image/png;base64,' + result.results.chart;
                 document.getElementById('finalChart').style.display = 'block';
                 fullTableData = result.results.combined_table;
+                scenarioTableData = result.results.scenario_table || [];
+                tableView = 'accounts';
+                document.getElementById('tableViewToggle').checked = false;
                 showingAllRows = false;
                 renderTable();
                 goToStep('step4');
@@ -380,30 +402,70 @@
             }
         }
 
+        function formatCompactCurrency(value) {
+            const amount = Number(value) || 0;
+            const absolute = Math.abs(amount);
+            if (absolute >= 1000000000) return `$${(amount / 1000000000).toFixed(2)}B`;
+            if (absolute >= 1000000) return `$${(amount / 1000000).toFixed(2)}M`;
+            if (absolute >= 1000) return `$${(amount / 1000).toFixed(1)}k`;
+            return currency.format(amount);
+        }
+
+        function compactValue(value) {
+            return `<span class="currency-value" title="${currency.format(Number(value) || 0)}">${formatCompactCurrency(value)}</span>`;
+        }
+
+        function endingBalanceValue(row) {
+            return Number(row.total_value ?? row.Ending_Balance ?? 0);
+        }
+
+        function withdrawalBreakdown(row) {
+            const breakdown = row.withdrawal_breakdown || {};
+            const entries = [
+                ['Pre-Tax', breakdown.traditional],
+                ['Post-Tax', breakdown.roth],
+                ['Taxable', breakdown.taxable]
+            ].filter(([, value]) => Number(value || 0) > 0);
+            return entries.length
+                ? entries.map(([label, value]) => `<div>${label}: ${compactValue(value)}</div>`).join('')
+                : 'No withdrawals';
+        }
+
+        function groupedRows(rows) {
+            return rows.reduce((groups, row) => {
+                const decade = Math.floor(row.Age / 10) * 10;
+                (groups[decade] ||= []).push(row);
+                return groups;
+            }, {});
+        }
+
         function renderTable() {
             const container = document.getElementById('table-container');
-            const dataToRender = showingAllRows ? fullTableData : fullTableData.slice(0, 10);
-            document.getElementById('toggleTableBtn').innerText = showingAllRows ? "Show 10 Rows" : "Show All Rows";
+            const rows = tableView === 'scenarios' ? scenarioTableData : fullTableData;
+            const groups = groupedRows(rows);
+            const headers = tableView === 'scenarios'
+                ? '<th>Age</th><th>Total Withdrawals</th><th>10th Percentile<br><small>Poor Market</small></th><th>50th Percentile<br><small>Median Market</small></th><th>90th Percentile<br><small>Strong Market</small></th>'
+                : '<th>Age</th><th>Contributions</th><th>Account Withdrawals</th><th>Pre-Tax Balance<br><small>+ Yearly Interest</small></th><th>Post-Tax Balance<br><small>+ Yearly Interest</small></th><th>Taxable Balance<br><small>+ Yearly Interest</small></th><th>Ending Balance</th>';
 
-            let html = '<table class="detail-table"><thead><tr><th>Age</th><th>Beginning Balance</th><th>Contributions</th><th>Interest</th><th>Account Withdrawals</th><th>Ending Balance</th></tr></thead><tbody>';
-            dataToRender.forEach(row => {
-                const breakdown = row.withdrawal_breakdown || {};
-                const trad = Number(breakdown.traditional || 0);
-                const roth = Number(breakdown.roth || 0);
-                const taxable = Number(breakdown.taxable || 0);
-                const taxPaid = Number(breakdown.tax_paid || 0);
-
-                const breakdownHtml = [
-                    trad > 0 ? `<div><strong>Pre-tax:</strong> ${currency.format(trad)}</div>` : '',
-                    roth > 0 ? `<div><strong>Roth:</strong> ${currency.format(roth)}</div>` : '',
-                    taxable > 0 ? `<div><strong>Taxable:</strong> ${currency.format(taxable)}</div>` : '',
-                    taxPaid > 0 ? `<div style="color:#c0392b;"><strong>Taxes:</strong> ${currency.format(taxPaid)}</div>` : ''
-                ].filter(Boolean).join('');
-
-                html += `<tr><td>${row.Age}</td><td>${currency.format(row.Investment_Amount)}</td><td style="color: green;">+${currency.format(row.Contributions)}</td><td style="color: blue;">+${currency.format(row.Interest_Earned)}</td><td style="color: red;">-${currency.format(row.Withdrawals)}<div style="margin-top: 6px; font-size: 11px; line-height: 1.6;">${breakdownHtml || 'No withdrawals'}</div></td><td style="font-weight: bold;">${currency.format(row.Ending_Balance)}</td></tr>`;
+            let html = '';
+            Object.entries(groups).forEach(([decade, decadeRows]) => {
+                html += `<details class="decade-group"><summary class="decade-toggle">Age ${decade}-${Number(decade) + 9}</summary><table class="detail-table"><thead><tr>${headers}</tr></thead><tbody>`;
+                decadeRows.forEach(row => {
+                    if (tableView === 'scenarios') {
+                        html += `<tr><td>${row.Age}</td><td>${compactValue(row.Withdrawals)}</td><td>${compactValue(row.p10)}</td><td>${compactValue(row.p50)}</td><td>${compactValue(row.p90)}</td></tr>`;
+                    } else {
+                        html += `<tr><td>${row.Age}</td><td style="color: #16a34a;">+${compactValue(row.Contributions)}</td><td style="color: #dc2626;">-${compactValue(row.Withdrawals)}<div style="margin-top: 6px; font-size: 11px; line-height: 1.6;">${withdrawalBreakdown(row)}</div></td><td>${compactValue(row.pre_tax_balance)}<div class="interest-value">Interest: ${compactValue(row.pre_tax_interest)}</div></td><td>${compactValue(row.post_tax_balance)}<div class="interest-value">Interest: ${compactValue(row.post_tax_interest)}</div></td><td>${compactValue(row.taxable_balance)}<div class="interest-value">Interest: ${compactValue(row.taxable_interest)}</div></td><td style="font-weight: bold;">${compactValue(endingBalanceValue(row))}</td></tr>`;
+                    }
+                });
+                html += '</tbody></table></details>';
             });
-            html += '</tbody></table>';
             container.innerHTML = html;
+            document.getElementById('toggleTableBtn').style.display = 'none';
+        }
+
+        function setTableView(view) {
+            tableView = view;
+            renderTable();
         }
 
         function buildReportTableRows(rows) {
@@ -436,7 +498,7 @@
                 html += `<td style="padding:10px; border:1px solid #e5e7eb; color:#16a34a;">+${currency.format(row.Contributions)}</td>`;
                 html += `<td style="padding:10px; border:1px solid #e5e7eb; color:#2563eb;">+${currency.format(row.Interest_Earned)}</td>`;
                 html += `<td style="padding:10px; border:1px solid #e5e7eb; color:#dc2626;">-${currency.format(row.Withdrawals)}<div style="margin-top:6px; line-height:1.6; font-size:12px;">${breakdownHtml || 'No withdrawals'}</div></td>`;
-                html += `<td style="padding:10px; border:1px solid #e5e7eb; font-weight:bold;">${currency.format(row.Ending_Balance)}</td>`;
+                html += `<td style="padding:10px; border:1px solid #e5e7eb; font-weight:bold;">${currency.format(endingBalanceValue(row))}</td>`;
                 html += `</tr>`;
             });
             html += '</tbody></table>';

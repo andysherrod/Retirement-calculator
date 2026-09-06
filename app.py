@@ -135,7 +135,11 @@ class EnhancedRetirementCalculator:
                 'Contributions': total_contr,
                 'Interest_Earned': int_trad + int_roth + int_tax,
                 'Withdrawals': 0.0,
-                'Ending_Balance': cur_trad + cur_roth + cur_tax
+                'Ending_Balance': cur_trad + cur_roth + cur_tax,
+                'pre_tax_balance': cur_trad,
+                'post_tax_balance': cur_roth,
+                'taxable_balance': cur_tax,
+                'total_value': cur_trad + cur_roth + cur_tax
             })
 
         future_total = cur_trad + cur_roth + cur_tax
@@ -210,7 +214,11 @@ class EnhancedRetirementCalculator:
                     'taxable': draw_tax,
                     'tax_paid': tax_paid
                 },
-                'Ending_Balance': cur_trad + cur_roth + cur_tax
+                'Ending_Balance': cur_trad + cur_roth + cur_tax,
+                'pre_tax_balance': cur_trad,
+                'post_tax_balance': cur_roth,
+                'taxable_balance': cur_tax,
+                'total_value': cur_trad + cur_roth + cur_tax
             })
 
         # --- 2. Monte Carlo Simulation ---
@@ -266,56 +274,145 @@ class EnhancedRetirementCalculator:
         success_rate = (ret_total[:, -1] > 0).mean() * 100
         retirement_median_path = np.median(ret_total, axis=0)
 
+        for index, row in enumerate(combined_table):
+            account_values = (
+                (np.median(port_trad[:, index]), np.median(port_roth[:, index]), np.median(port_tax[:, index]))
+                if index <= years_to_retire
+                else (
+                    np.median(ret_trad[:, index - years_to_retire]),
+                    np.median(ret_roth[:, index - years_to_retire]),
+                    np.median(ret_tax[:, index - years_to_retire])
+                )
+            )
+            row['pre_tax_balance'], row['post_tax_balance'], row['taxable_balance'] = account_values
+            row['total_value'] = sum(account_values)
+            row['Ending_Balance'] = row['total_value']
+
+            if index == 0:
+                row['pre_tax_interest'] = 0.0
+                row['post_tax_interest'] = 0.0
+                row['taxable_interest'] = 0.0
+            elif index <= years_to_retire:
+                year_index = index - 1
+                row['pre_tax_interest'] = float(np.median((port_trad[:, year_index] + trad_contr) * pre_returns[:, year_index]))
+                row['post_tax_interest'] = float(np.median((port_roth[:, year_index] + roth_contr) * pre_returns[:, year_index]))
+                row['taxable_interest'] = float(np.median((port_tax[:, year_index] + tax_contr) * pre_returns[:, year_index]))
+            else:
+                year_index = index - years_to_retire - 1
+                row['pre_tax_interest'] = float(np.median(ret_trad[:, year_index] * ret_returns[:, year_index]))
+                row['post_tax_interest'] = float(np.median(ret_roth[:, year_index] * ret_returns[:, year_index]))
+                row['taxable_interest'] = float(np.median(ret_tax[:, year_index] * ret_returns[:, year_index]))
+
+        scenario_table = []
+        for index, row in enumerate(combined_table):
+            scenario_values = (
+                pre_total[:, index]
+                if index <= years_to_retire
+                else ret_total[:, index - years_to_retire]
+            )
+            scenario_table.append({
+                'Age': row['Age'],
+                'Withdrawals': row['Withdrawals'],
+                'p10': float(np.percentile(scenario_values, 10)),
+                'p50': float(np.percentile(scenario_values, 50)),
+                'p90': float(np.percentile(scenario_values, 90))
+            })
+
         return {
             'success_rate': success_rate,
             'pre_retirement_path': pre_retirement_median_path,
             'retirement_path': retirement_median_path,
+            'pre_percentiles': np.percentile(pre_total, [10, 50, 90], axis=0),
+            'retirement_percentiles': np.percentile(ret_total, [10, 50, 90], axis=0),
             'combined_table': combined_table,
+            'scenario_table': scenario_table,
             'initial_withdrawal_rate': initial_withdrawal_rate,
             'total_invested': total_invested_out_of_pocket
         }
 
     def generate_chart(self, results):
-        fig = Figure(figsize=(10, 10))
-        
-        ax1 = fig.add_subplot(2, 1, 1)
-        pre_ages = self.age_current + np.arange(len(results['pre_retirement_path']))
-        ax1.plot(pre_ages, results['pre_retirement_path'], 'b-', linewidth=3, label='Accumulation Phase')
-        
-        ret_ages = self.age_retire + np.arange(len(results['retirement_path']))
-        ax1.plot(ret_ages, results['retirement_path'], 'g-', linewidth=3, label='Retirement Phase')
-        
-        ax1.set_title('Median Total Portfolio Projection (10,000 Monte Carlo Simulations)', fontsize=14, fontweight='bold')
-        ax1.set_xlabel('Age')
-        ax1.set_ylabel('Total Portfolio Value ($)')
-        ax1.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda x, p: f'${x/1000:.0f}K'))
-        ax1.grid(True, alpha=0.3)
-        ax1.legend()
+        fig = Figure(figsize=(13, 11))
+        axes = fig.subplots(2, 2)
+        currency_formatter = matplotlib.ticker.FuncFormatter(
+            lambda value, _: f'${value / 1000000:.1f}M' if abs(value) >= 1000000 else f'${value / 1000:.0f}K'
+        )
 
-        ax2 = fig.add_subplot(2, 1, 2)
+        pre_ages = self.age_current + np.arange(len(results['pre_retirement_path']))
+        ret_ages = self.age_retire + np.arange(len(results['retirement_path']))
+        all_ages = np.concatenate([pre_ages, ret_ages[1:]])
+        p10 = np.concatenate([results['pre_percentiles'][0], results['retirement_percentiles'][0, 1:]])
+        p50 = np.concatenate([results['pre_percentiles'][1], results['retirement_percentiles'][1, 1:]])
+        p90 = np.concatenate([results['pre_percentiles'][2], results['retirement_percentiles'][2, 1:]])
+
+        ax1, ax2, ax3, ax4 = axes.flat
+        ax1.fill_between(all_ages, p10, p90, color='#90caf9', alpha=0.35, label='10th-90th percentile')
+        ax1.plot(all_ages, p50, color='#1565c0', linewidth=2.5, label='Median path')
+        ax1.axvline(self.age_retire, color='#475569', linestyle='--', linewidth=1.5, label='Retirement age')
+        ax1.set_title('Portfolio Range Under Market Uncertainty', fontweight='bold')
+        ax1.set_ylabel('Portfolio value')
+        ax1.yaxis.set_major_formatter(currency_formatter)
+        ax1.grid(True, alpha=0.25)
+        ax1.legend(fontsize=8)
+
         table = results['combined_table']
-        ret_table = [r for r in table if r['Age'] >= self.age_retire]
-        
+        ages = np.array([row['Age'] for row in table])
+        pre_tax = np.array([row['pre_tax_balance'] for row in table])
+        post_tax = np.array([row['post_tax_balance'] for row in table])
+        taxable = np.array([row['taxable_balance'] for row in table])
+        ax2.stackplot(
+            ages, pre_tax, post_tax, taxable,
+            labels=['Pre-Tax', 'Post-Tax', 'Taxable'],
+            colors=['#264653', '#2a9d8f', '#e9c46a'], alpha=0.9
+        )
+        ax2.axvline(self.age_retire, color='#475569', linestyle='--', linewidth=1.5)
+        ax2.set_title('Median Portfolio Composition', fontweight='bold')
+        ax2.set_ylabel('Account value')
+        ax2.yaxis.set_major_formatter(currency_formatter)
+        ax2.grid(True, alpha=0.25)
+        ax2.legend(fontsize=8, loc='upper right')
+
+        ret_table = [row for row in table if row['Age'] >= self.age_retire]
         if ret_table:
-            ages = [r['Age'] for r in ret_table]
-            withdrawals = [r['Withdrawals'] for r in ret_table]
-            
+            retirement_ages = np.array([row['Age'] for row in ret_table])
+            withdrawals = np.array([row['Withdrawals'] for row in ret_table])
             years_until_ret = self.age_retire - self.age_current
-            benefits = [self.monthly_benefits * 12 * ((1 + self.inflation_rate)**(yr + years_until_ret)) for yr in range(len(ret_table))]
-            budgets = [self.target_budget * ((1 + self.inflation_rate)**(yr + years_until_ret)) for yr in range(len(ret_table))]
-            
-            ax2.bar(ages, benefits, label='Fixed Benefits (Pension/SSN)', color='#8ecae6')
-            ax2.bar(ages, withdrawals, bottom=benefits, label='Gross Portfolio Withdrawals (Includes Taxes)', color='#219ebc')
-            ax2.plot(ages, budgets, 'r--', linewidth=2, label='Target Net Inflation-Adjusted Budget')
-            
-            ax2.set_title('Funding Your Retirement: Income vs Target Budget', fontsize=14, fontweight='bold')
-            ax2.set_xlabel('Age')
-            ax2.set_ylabel('Annual Amount ($)')
-            ax2.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda x, p: f'${x/1000:.0f}K'))
-            ax2.grid(True, alpha=0.3)
-            ax2.legend()
-        
-        fig.tight_layout(pad=3.0)
+            benefits = np.array([
+                self.monthly_benefits * 12 * ((1 + self.inflation_rate) ** (year + years_until_ret))
+                for year in range(len(ret_table))
+            ])
+            budgets = np.array([
+                self.target_budget * ((1 + self.inflation_rate) ** (year + years_until_ret))
+                for year in range(len(ret_table))
+            ])
+            ax3.bar(retirement_ages, benefits, label='Benefits', color='#8ecae6')
+            ax3.bar(retirement_ages, withdrawals, bottom=benefits, label='Portfolio withdrawals', color='#219ebc')
+            ax3.plot(retirement_ages, budgets, 'r--', linewidth=2, label='Target budget')
+            ax3.set_title('How Retirement Spending Is Funded', fontweight='bold')
+            ax3.set_ylabel('Annual amount')
+            ax3.yaxis.set_major_formatter(currency_formatter)
+            ax3.grid(True, alpha=0.25)
+            ax3.legend(fontsize=8)
+
+            balances = np.array([row['Investment_Amount'] for row in ret_table])
+            withdrawal_rates = np.divide(withdrawals, balances, out=np.zeros_like(withdrawals), where=balances > 0) * 100
+            ax4.plot(retirement_ages, withdrawal_rates, color='#c0392b', linewidth=2.5, label='Initial withdrawal pressure')
+            ax4.axhline(4, color='#2a9d8f', linestyle='--', label='4% reference')
+            ax4.axhline(5.5, color='#e76f51', linestyle='--', label='5.5% caution')
+            ax4.set_title('Withdrawal Rate Pressure', fontweight='bold')
+            ax4.set_xlabel('Age')
+            ax4.set_ylabel('Withdrawal rate (%)')
+            ax4.set_ylim(bottom=0)
+            ax4.grid(True, alpha=0.25)
+            ax4.legend(fontsize=8)
+        else:
+            ax3.text(0.5, 0.5, 'Retirement phase unavailable', ha='center', va='center')
+            ax4.axis('off')
+
+        for axis in axes.flat:
+            axis.set_xlabel('Age')
+            axis.tick_params(labelsize=8)
+        fig.suptitle('Retirement Outlook Dashboard', fontsize=16, fontweight='bold')
+        fig.tight_layout(rect=[0, 0, 1, 0.97], pad=2.0)
         img = io.BytesIO()
         canvas = FigureCanvas(fig)
         canvas.print_png(img)
@@ -437,6 +534,7 @@ def calculate_advanced():
                 'success_probability': f"{results['success_rate']:.1f}%",
                 'chart': chart,
                 'combined_table': results['combined_table'],
+                'scenario_table': results['scenario_table'],
                 'initial_withdrawal_rate': results['initial_withdrawal_rate'],
                 'current_effective_tax_rate': current_effective_tax_rate * 100,
                 'projected_retirement_tax_rate': projected_retirement_tax_rate * 100,
