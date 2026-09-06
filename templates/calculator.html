@@ -514,8 +514,12 @@
                             <small>Used for the current portfolio and contributions when no investment streams are added.</small>
                         </div>
                         <div class="form-group">
-                            <label for="tax_rate">Effective Tax Rate (%) <span class="tooltip" data-tooltip="Expected tax rate on withdrawals">ℹ</span></label>
-                            <input type="number" id="tax_rate" name="tax_rate" value="22" min="0" max="40" step="1" required>
+                            <label for="current_tax_rate">Current Tax Rate (%) <span class="tooltip" data-tooltip="Your current marginal tax rate; used to estimate deductions from traditional contributions">ℹ</span></label>
+                            <input type="number" id="current_tax_rate" name="current_tax_rate" value="24" min="0" max="50" step="1" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="retirement_tax_rate">Retirement Tax Rate (%) <span class="tooltip" data-tooltip="Expected tax rate on traditional withdrawals and taxable gains in retirement">ℹ</span></label>
+                            <input type="number" id="retirement_tax_rate" name="retirement_tax_rate" value="15" min="0" max="50" step="1" required>
                         </div>
                     </div>
                     
@@ -608,12 +612,11 @@
                         </div>
                     </div>
 
-                    <p style="margin: -10px 0 20px; color: #666; font-size: 0.9em;">
-                        Retirement withdrawals use taxable assets first, then traditional tax-deferred assets, then Roth assets. Traditional withdrawals are taxed at the effective tax rate; taxable withdrawals are taxed only on their investment gains.
-                    </p>
-
                     <div id="tabDetailsContent" style="display:none;">
                         <div class="section-title">Year-by-Year Details</div>
+                        <p style="margin: -10px 0 20px; color: #666; font-size: 0.9em;">
+                            Withdrawals use taxable assets first, then traditional tax-deferred assets, then Roth assets. The table shows the balance, withdrawal, and tax paid for each bucket.
+                        </p>
 
                         <div class="result-card">
                             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
@@ -882,6 +885,13 @@
                         Contributions: contributions,
                         Interest_Earned: interest,
                         Withdrawals: 0.0,
+                        Tax_Paid: 0.0,
+                        Roth_Balance: r.Roth_Balance || 0,
+                        Trad_Balance: r.Trad_Balance || r.Traditional_Balance || 0,
+                        Taxable_Balance: r.Taxable_Balance || 0,
+                        Taxable_Withdrawal: 0.0,
+                        Traditional_Withdrawal: 0.0,
+                        Roth_Withdrawal: 0.0,
                         Ending_Balance: ending
                     });
                 });
@@ -897,13 +907,21 @@
                         Contributions: 0.0,
                         Interest_Earned: interest,
                         Withdrawals: withdrawals,
+                        Tax_Paid: r.Tax_Paid || 0,
+                        Roth_Balance: r.Roth_Balance || 0,
+                        Trad_Balance: r.Trad_Balance || r.Traditional_Balance || 0,
+                        Taxable_Balance: r.Taxable_Balance || 0,
+                        Taxable_Withdrawal: r.Taxable_Withdrawal || 0,
+                        Traditional_Withdrawal: r.Traditional_Withdrawal || 0,
+                        Roth_Withdrawal: r.Roth_Withdrawal || 0,
                         Ending_Balance: ending
                     });
                 });
             }
 
             // Render combined table (first 10 rows preview by default)
-            renderTable('combinedTableContainer', combined, ['Year', 'Age', 'Investment_Amount', 'Contributions', 'Interest_Earned', 'Withdrawals', 'Taxable_Withdrawal', 'Traditional_Withdrawal', 'Roth_Withdrawal', 'Ending_Balance'], 10);
+            const detailColumns = ['Year', 'Age', 'Investment_Amount', 'Contributions', 'Interest_Earned', 'Withdrawals', 'Tax_Paid', 'Roth_Balance', 'Trad_Balance', 'Taxable_Balance', 'Taxable_Withdrawal', 'Traditional_Withdrawal', 'Roth_Withdrawal', 'Ending_Balance'];
+            renderTable('combinedTableContainer', combined, detailColumns, 10);
 
             // Add visible count and small JSON preview
             try {
@@ -930,7 +948,7 @@
             try {
                 const showBtn = document.getElementById('combinedShowToggle');
                 if (showBtn) {
-                    showBtn.onclick = function() { toggleShowAll('combinedTableContainer', combined, ['Year', 'Age', 'Investment_Amount', 'Contributions', 'Interest_Earned', 'Withdrawals', 'Taxable_Withdrawal', 'Traditional_Withdrawal', 'Roth_Withdrawal', 'Ending_Balance'], this); };
+                    showBtn.onclick = function() { toggleShowAll('combinedTableContainer', combined, detailColumns, this); };
                 } else console.warn('combinedShowToggle not found');
 
                 const csvBtn = document.getElementById('combinedCsv');
@@ -1048,20 +1066,6 @@
         document.getElementById('age_retire').addEventListener('change', updateFormValidation);
         document.getElementById('life_expectancy').addEventListener('change', updateFormValidation);
         
-        // Tax rate visibility based on account type
-        document.getElementById('account_type').addEventListener('change', function() {
-            const taxRateGroup = document.getElementById('tax_rate').parentElement;
-            if (this.value === 'Roth IRA/401k') {
-                taxRateGroup.style.opacity = '0.5';
-                document.getElementById('tax_rate').value = '0';
-            } else {
-                taxRateGroup.style.opacity = '1';
-                if (document.getElementById('tax_rate').value === '0') {
-                    document.getElementById('tax_rate').value = '22';
-                }
-            }
-        });
-
         // Add sample investment streams on page load
         function addSampleStreams() {
             // Add Roth IRA stream

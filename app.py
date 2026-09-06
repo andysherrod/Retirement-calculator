@@ -32,7 +32,8 @@ class InvestmentStream:
 class EnhancedRetirementCalculator:
     def __init__(self, age_current, age_retire, life_expectancy, monthly_benefit_income,
                  portfolio_total, yearly_investment, years_contributing, current_monthly_budget,
-                 inflation_rate, expected_return, account_type, tax_rate, retirement_budget_ratio,
+                 inflation_rate, expected_return, account_type, current_tax_rate, retirement_tax_rate,
+                 retirement_budget_ratio,
                  retirement_phases, healthcare_costs,
                  portfolio_volatility=0.16, investment_streams=None,
                  random_seed: Optional[int] = None, num_simulations: int = 10000):
@@ -51,7 +52,8 @@ class EnhancedRetirementCalculator:
         self.inflation_rate = inflation_rate
         self.expected_return = expected_return
         self.account_type = account_type
-        self.tax_rate = tax_rate
+        self.current_tax_rate = current_tax_rate
+        self.retirement_tax_rate = retirement_tax_rate
         self.retirement_budget_ratio = retirement_budget_ratio
         self.retirement_phases = retirement_phases
         self.healthcare_costs = healthcare_costs
@@ -135,7 +137,10 @@ class EnhancedRetirementCalculator:
                     pre_retirement_df.loc[year, 'Tax_Savings'] = stream_data['tax_savings']
                 else:
                     contribution = self.yearly_investment
-                    pre_retirement_df.loc[year, 'Tax_Savings'] = 0
+                    pre_retirement_df.loc[year, 'Tax_Savings'] = (
+                        contribution * self.current_tax_rate
+                        if self.account_type == 'Traditional IRA/401k' else 0
+                    )
             else:
                 contribution = 0
                 pre_retirement_df.loc[year, 'Tax_Savings'] = 0
@@ -266,7 +271,7 @@ class EnhancedRetirementCalculator:
 
             remaining = np.full(num_simulations, max(0, total_expenses - annual_benefit), dtype=np.float64)
             taxable_ratio = np.divide(taxable_basis, taxable, out=np.ones_like(taxable), where=taxable > 0)
-            taxable_tax_rate = self.tax_rate * (1 - taxable_ratio)
+            taxable_tax_rate = self.retirement_tax_rate * (1 - taxable_ratio)
             taxable_withdrawal = np.minimum(
                 taxable,
                 np.divide(remaining, 1 - taxable_tax_rate, out=np.zeros_like(remaining), where=taxable_tax_rate < 1)
@@ -276,9 +281,9 @@ class EnhancedRetirementCalculator:
             taxable_basis = np.maximum(0, taxable_basis - taxable_withdrawal * taxable_ratio)
             remaining -= taxable_withdrawal - taxable_tax
 
-            traditional_withdrawal = np.minimum(traditional, remaining / (1 - self.tax_rate))
+            traditional_withdrawal = np.minimum(traditional, remaining / (1 - self.retirement_tax_rate))
             traditional -= traditional_withdrawal
-            remaining -= traditional_withdrawal * (1 - self.tax_rate)
+            remaining -= traditional_withdrawal * (1 - self.retirement_tax_rate)
 
             roth_withdrawal = np.minimum(roth, np.maximum(0, remaining))
             roth -= roth_withdrawal
@@ -355,13 +360,13 @@ class EnhancedRetirementCalculator:
 
             # Calculate tax implications
             if stream.tax_treatment == 'traditional':
-                tax_savings += available_contribution * self.tax_rate
+                tax_savings += available_contribution * self.current_tax_rate
 
             remaining_capacity[stream.name] = {
                 'contributed': available_contribution,
                 'employer_match': employer_match,
                 'tax_treatment': stream.tax_treatment,
-                'tax_savings': available_contribution * self.tax_rate if stream.tax_treatment == 'traditional' else 0
+                'tax_savings': available_contribution * self.current_tax_rate if stream.tax_treatment == 'traditional' else 0
             }
 
         return {
@@ -413,7 +418,7 @@ class EnhancedRetirementCalculator:
         if remaining > 0 and taxable > 0:
             basis_ratio = min(1.0, buckets['taxable_basis'] / taxable) if taxable else 1.0
             gain_ratio = 1.0 - basis_ratio
-            tax_rate = self.tax_rate * gain_ratio
+            tax_rate = self.retirement_tax_rate * gain_ratio
             gross = min(taxable, remaining / (1.0 - tax_rate) if tax_rate < 1 else taxable)
             tax = gross * tax_rate
             buckets['taxable'] -= gross
@@ -424,12 +429,12 @@ class EnhancedRetirementCalculator:
             remaining -= gross - tax
 
         if remaining > 0 and buckets['traditional'] > 0:
-            gross = min(buckets['traditional'], remaining / (1.0 - self.tax_rate))
+            gross = min(buckets['traditional'], remaining / (1.0 - self.retirement_tax_rate))
             buckets['traditional'] -= gross
             withdrawals['traditional'] = gross
             total_withdrawal += gross
-            tax_paid += gross * self.tax_rate
-            remaining -= gross * (1.0 - self.tax_rate)
+            tax_paid += gross * self.retirement_tax_rate
+            remaining -= gross * (1.0 - self.retirement_tax_rate)
 
         if remaining > 0 and buckets['roth'] > 0:
             gross = min(buckets['roth'], remaining)
@@ -599,7 +604,8 @@ def calculate():
         # Required fields (yearly_investment is optional now)
         required_fields = ['age_current', 'age_retire', 'life_expectancy', 'monthly_benefit_income',
                            'portfolio_total', 'years_contributing', 'current_monthly_budget',
-                           'inflation_rate', 'expected_return', 'account_type', 'tax_rate',
+                           'inflation_rate', 'expected_return', 'account_type',
+                           'current_tax_rate', 'retirement_tax_rate',
                            'retirement_budget_ratio', 'retirement_phases', 'healthcare_costs']
         missing = [f for f in required_fields if f not in data or str(data.get(f)).strip() == '']
         if missing:
@@ -631,7 +637,8 @@ def calculate():
             inflation_rate=float(data['inflation_rate']) / 100,
             expected_return=float(data['expected_return']) / 100,
             account_type=data['account_type'],
-            tax_rate=float(data['tax_rate']) / 100,
+            current_tax_rate=float(data['current_tax_rate']) / 100,
+            retirement_tax_rate=float(data['retirement_tax_rate']) / 100,
             retirement_budget_ratio=float(data['retirement_budget_ratio']) / 100,
             retirement_phases=data['retirement_phases'],
             healthcare_costs=float(data['healthcare_costs']),
@@ -662,6 +669,7 @@ def calculate():
                     'Tax_Savings': tax_savings,
                     'Ending_Portfolio': ending,
                     'Roth_Balance': float(row.get('Roth_Balance', 0)),
+                    'Trad_Balance': float(row.get('Traditional_Balance', 0)),
                     'Traditional_Balance': float(row.get('Traditional_Balance', 0)),
                     'Taxable_Balance': float(row.get('Taxable_Balance', 0)),
                     'Taxable_Basis': float(row.get('Taxable_Basis', 0))
@@ -687,6 +695,7 @@ def calculate():
                     'Ending_Portfolio': ending,
                     'Tax_Paid': float(row.get('Tax_Paid', 0)) if 'Tax_Paid' in ret_df.columns and not pd.isna(row.get('Tax_Paid', 0)) else 0.0,
                     'Roth_Balance': float(row.get('Roth_Balance', 0)),
+                    'Trad_Balance': float(row.get('Traditional_Balance', 0)),
                     'Traditional_Balance': float(row.get('Traditional_Balance', 0)),
                     'Taxable_Balance': float(row.get('Taxable_Balance', 0)),
                     'Taxable_Basis': float(row.get('Taxable_Basis', 0)),
@@ -714,9 +723,14 @@ def calculate():
                 'Contributions': contributions,
                 'Interest_Earned': interest,
                 'Withdrawals': 0.0,
+                'Tax_Paid': 0.0,
                 'Taxable_Withdrawal': 0.0,
                 'Traditional_Withdrawal': 0.0,
                 'Roth_Withdrawal': 0.0,
+                'Roth_Balance': float(row.get('Roth_Balance', 0.0)),
+                'Trad_Balance': float(row.get('Traditional_Balance', 0.0)),
+                'Traditional_Balance': float(row.get('Traditional_Balance', 0.0)),
+                'Taxable_Balance': float(row.get('Taxable_Balance', 0.0)),
                 'Ending_Balance': ending
             })
             year_counter += 1
@@ -740,9 +754,14 @@ def calculate():
                 'Contributions': 0.0,
                 'Interest_Earned': interest,
                 'Withdrawals': withdrawals,
+                'Tax_Paid': float(row.get('Tax_Paid', 0.0)),
                 'Taxable_Withdrawal': float(row.get('Taxable_Withdrawal', 0.0)),
                 'Traditional_Withdrawal': float(row.get('Traditional_Withdrawal', 0.0)),
                 'Roth_Withdrawal': float(row.get('Roth_Withdrawal', 0.0)),
+                'Roth_Balance': float(row.get('Roth_Balance', 0.0)),
+                'Trad_Balance': float(row.get('Traditional_Balance', 0.0)),
+                'Traditional_Balance': float(row.get('Traditional_Balance', 0.0)),
+                'Taxable_Balance': float(row.get('Taxable_Balance', 0.0)),
                 'Ending_Balance': ending
             })
             year_counter += 1
