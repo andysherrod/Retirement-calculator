@@ -54,15 +54,24 @@
         .view-toggle input::before { content: ''; position: absolute; width: 18px; height: 18px; top: 2px; left: 2px; border-radius: 50%; background: white; transition: transform 0.2s ease; box-shadow: 0 1px 3px rgba(0,0,0,0.25); }
         .view-toggle input:checked { background: #667eea; }
         .view-toggle input:checked::before { transform: translateX(20px); }
+        .assumption-toggle { display: flex; align-items: center; gap: 10px; margin-top: 15px; color: #2c3e50; font-weight: 600; }
+        .assumption-toggle input { width: 42px; height: 22px; appearance: none; background: #cbd5e1; border-radius: 999px; padding: 0; cursor: pointer; position: relative; transition: background 0.2s ease; }
+        .assumption-toggle input::before { content: ''; position: absolute; width: 18px; height: 18px; top: 2px; left: 2px; border-radius: 50%; background: white; transition: transform 0.2s ease; box-shadow: 0 1px 3px rgba(0,0,0,0.25); }
+        .assumption-toggle input:checked { background: #667eea; }
+        .assumption-toggle input:checked::before { transform: translateX(20px); }
+        #retirement-return-options { display: none; margin-top: 15px; }
         .decade-row td { padding: 0; background: #eef2ff; border-bottom: 1px solid #dbe4ff; }
         .decade-toggle { width: 100%; padding: 11px 12px; border: 0; background: transparent; color: #2c3e50; text-align: left; font-weight: 700; cursor: pointer; }
         .decade-group { margin-bottom: 10px; border: 1px solid #e9ecef; border-radius: 8px; overflow: hidden; }
         .decade-group .detail-table { margin-top: 0; table-layout: fixed; }
         .decade-group .detail-table th, .decade-group .detail-table td { overflow-wrap: anywhere; vertical-align: top; }
-        .decade-group .detail-table th:nth-child(1), .decade-group .detail-table td:nth-child(1) { width: 8%; }
-        .decade-group .detail-table th:nth-child(2), .decade-group .detail-table td:nth-child(2) { width: 14%; }
-        .decade-group .detail-table th:nth-child(3), .decade-group .detail-table td:nth-child(3) { width: 20%; }
-        .decade-group .detail-table th:nth-child(n+4), .decade-group .detail-table td:nth-child(n+4) { width: 14.5%; }
+        .decade-group .detail-table th:nth-child(1), .decade-group .detail-table td:nth-child(1) { width: 7%; }
+        .decade-group .detail-table th:nth-child(2), .decade-group .detail-table td:nth-child(2) { width: 10%; }
+        .decade-group .detail-table th:nth-child(3), .decade-group .detail-table td:nth-child(3) { width: 11%; }
+        .decade-group .detail-table th:nth-child(4), .decade-group .detail-table td:nth-child(4) { width: 12%; }
+        .decade-group .detail-table th:nth-child(5), .decade-group .detail-table td:nth-child(5) { width: 16%; }
+        .decade-group .detail-table th:nth-child(6), .decade-group .detail-table td:nth-child(6), .decade-group .detail-table th:nth-child(7), .decade-group .detail-table td:nth-child(7), .decade-group .detail-table th:nth-child(8), .decade-group .detail-table td:nth-child(8) { width: 10%; }
+        .decade-group .detail-table th:nth-child(9), .decade-group .detail-table td:nth-child(9) { width: 14%; }
         .currency-value { white-space: nowrap; }
         .loading { display: none; text-align: center; padding: 20px; }
         .loading.show { display: block; }
@@ -132,6 +141,11 @@
                 <div class="form-row">
                     <div class="form-group"><label>Expected Rate of Return (%)</label><input type="number" step="0.1" id="expected_return" required value="7.0"></div>
                     <div class="form-group"><label>Inflation Rate (%)</label><input type="number" step="0.1" id="inflation_rate" required value="2.5"></div>
+                </div>
+                <label class="assumption-toggle">Keep this return rate after retirement <input type="checkbox" id="keep_retirement_return" checked onchange="toggleRetirementReturnOptions()" aria-label="Keep expected return after retirement"></label>
+                <div id="retirement-return-options" class="form-row">
+                    <div class="form-group"><label>Retirement Rate of Return (%)</label><input type="number" step="0.1" id="retirement_expected_return" value="3.0"></div>
+                    <div class="form-group"><label>Change Return At Age</label><input type="number" id="return_change_age" value="65"></div>
                 </div>
 
                 <button type="submit" class="primary-btn">Calculate My Outlook</button>
@@ -284,6 +298,25 @@
             return streams;
         }
 
+        function toggleRetirementReturnOptions() {
+            const keepCurrentRate = document.getElementById('keep_retirement_return').checked;
+            document.getElementById('retirement-return-options').style.display = keepCurrentRate ? 'none' : 'grid';
+        }
+
+        document.getElementById('age_retire').addEventListener('input', (event) => {
+            const changeAge = document.getElementById('return_change_age');
+            const currentAge = document.getElementById('age_current').value;
+            changeAge.min = currentAge;
+            if (Number(changeAge.value) < Number(currentAge)) changeAge.value = currentAge;
+        });
+        document.getElementById('age_current').addEventListener('input', (event) => {
+            const changeAge = document.getElementById('return_change_age');
+            changeAge.min = event.target.value;
+            if (Number(changeAge.value) < Number(event.target.value)) changeAge.value = event.target.value;
+        });
+        document.getElementById('return_change_age').min = document.getElementById('age_current').value;
+        toggleRetirementReturnOptions();
+
         // Phase 1 to 2
         document.getElementById('gapForm').addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -299,7 +332,10 @@
                 portfolio_taxable: parseFloat(document.getElementById('portfolio_taxable').value),
                 monthly_benefits: parseFloat(document.getElementById('monthly_benefits').value),
                 expected_return: parseFloat(document.getElementById('expected_return').value),
-                inflation_rate: parseFloat(document.getElementById('inflation_rate').value)
+                inflation_rate: parseFloat(document.getElementById('inflation_rate').value),
+                keep_retirement_return: document.getElementById('keep_retirement_return').checked,
+                retirement_expected_return: parseFloat(document.getElementById('retirement_expected_return').value),
+                return_change_age: parseInt(document.getElementById('return_change_age').value)
             };
 
             const response = await fetch('/calculate_gap', {
@@ -351,7 +387,10 @@
                 document.getElementById('sum-total-invested').innerText = currency.format(result.results.total_invested);
                 document.getElementById('sum-tax-current').innerText = (result.results.current_effective_tax_rate ?? result.results.effective_tax_rate).toFixed(1) + "%";
                 document.getElementById('sum-tax-retirement').innerText = (result.results.projected_retirement_tax_rate ?? result.results.effective_tax_rate).toFixed(1) + "%";
-                document.getElementById('sum-return').innerText = baseData.expected_return + "%";
+                const retirementReturn = baseData.keep_retirement_return
+                    ? `${baseData.expected_return}% after retirement`
+                    : `${baseData.retirement_expected_return}% from age ${baseData.return_change_age}`;
+                document.getElementById('sum-return').innerText = `${baseData.expected_return}% before retirement; ${retirementReturn}`;
                 document.getElementById('sum-inflation').innerText = baseData.inflation_rate + "%";
 
                 const probString = result.results.success_probability; 
@@ -415,10 +454,6 @@
             return `<span class="currency-value" title="${currency.format(Number(value) || 0)}">${formatCompactCurrency(value)}</span>`;
         }
 
-        function endingBalanceValue(row) {
-            return Number(row.total_value ?? row.Ending_Balance ?? 0);
-        }
-
         function withdrawalBreakdown(row) {
             const breakdown = row.withdrawal_breakdown || {};
             const entries = [
@@ -445,7 +480,7 @@
             const groups = groupedRows(rows);
             const headers = tableView === 'scenarios'
                 ? '<th>Age</th><th>Total Withdrawals</th><th>10th Percentile<br><small>Poor Market</small></th><th>50th Percentile<br><small>Median Market</small></th><th>90th Percentile<br><small>Strong Market</small></th>'
-                : '<th>Age</th><th>Contributions</th><th>Account Withdrawals</th><th>Pre-Tax Balance<br><small>+ Yearly Interest</small></th><th>Post-Tax Balance<br><small>+ Yearly Interest</small></th><th>Taxable Balance<br><small>+ Yearly Interest</small></th><th>Ending Balance</th>';
+                : '<th>Age</th><th>Contributions</th><th>Benefit Payments</th><th>Total Income</th><th>Account Withdrawals</th><th>Pre-Tax Balance<br><small>+ Yearly Interest</small></th><th>Post-Tax Balance<br><small>+ Yearly Interest</small></th><th>Taxable Balance<br><small>+ Yearly Interest</small></th><th>Total Balance</th>';
 
             let html = '';
             Object.entries(groups).forEach(([decade, decadeRows]) => {
@@ -454,7 +489,7 @@
                     if (tableView === 'scenarios') {
                         html += `<tr><td>${row.Age}</td><td>${compactValue(row.Withdrawals)}</td><td>${compactValue(row.p10)}</td><td>${compactValue(row.p50)}</td><td>${compactValue(row.p90)}</td></tr>`;
                     } else {
-                        html += `<tr><td>${row.Age}</td><td style="color: #16a34a;">+${compactValue(row.Contributions)}</td><td style="color: #dc2626;">-${compactValue(row.Withdrawals)}<div style="margin-top: 6px; font-size: 11px; line-height: 1.6;">${withdrawalBreakdown(row)}</div></td><td>${compactValue(row.pre_tax_balance)}<div class="interest-value">Interest: ${compactValue(row.pre_tax_interest)}</div></td><td>${compactValue(row.post_tax_balance)}<div class="interest-value">Interest: ${compactValue(row.post_tax_interest)}</div></td><td>${compactValue(row.taxable_balance)}<div class="interest-value">Interest: ${compactValue(row.taxable_interest)}</div></td><td style="font-weight: bold;">${compactValue(endingBalanceValue(row))}</td></tr>`;
+                        html += `<tr><td>${row.Age}</td><td style="color: #16a34a;">+${compactValue(row.Contributions)}</td><td>${compactValue(row.Benefit_Payments)}</td><td style="font-weight: 600;">${compactValue(row.Total_Income)}</td><td style="color: #dc2626;">-${compactValue(row.Withdrawals)}<div style="margin-top: 6px; font-size: 11px; line-height: 1.6;">${withdrawalBreakdown(row)}</div></td><td>${compactValue(row.pre_tax_balance)}<div class="interest-value">Interest: ${compactValue(row.pre_tax_interest)}</div></td><td>${compactValue(row.post_tax_balance)}<div class="interest-value">Interest: ${compactValue(row.post_tax_interest)}</div></td><td>${compactValue(row.taxable_balance)}<div class="interest-value">Interest: ${compactValue(row.taxable_interest)}</div></td><td style="font-weight: bold;">${compactValue(row.total_value)}</td></tr>`;
                     }
                 });
                 html += '</tbody></table></details>';
@@ -472,11 +507,14 @@
             let html = '<table style="width:100%; border-collapse: collapse; font-size: 13px; margin-top: 18px; color:#1f2937;">';
             html += '<thead><tr style="background:#f8f9fa;">';
             html += '<th style="padding:10px; border:1px solid #e5e7eb; text-align:left;">Age</th>';
-            html += '<th style="padding:10px; border:1px solid #e5e7eb; text-align:left;">Beginning Balance</th>';
             html += '<th style="padding:10px; border:1px solid #e5e7eb; text-align:left;">Contributions</th>';
-            html += '<th style="padding:10px; border:1px solid #e5e7eb; text-align:left;">Interest</th>';
+            html += '<th style="padding:10px; border:1px solid #e5e7eb; text-align:left;">Benefits</th>';
+            html += '<th style="padding:10px; border:1px solid #e5e7eb; text-align:left;">Total Income</th>';
             html += '<th style="padding:10px; border:1px solid #e5e7eb; text-align:left;">Account Withdrawals</th>';
-            html += '<th style="padding:10px; border:1px solid #e5e7eb; text-align:left;">Ending Balance</th>';
+            html += '<th style="padding:10px; border:1px solid #e5e7eb; text-align:left;">Pre-Tax Balance<br><small>+ Yearly Interest</small></th>';
+            html += '<th style="padding:10px; border:1px solid #e5e7eb; text-align:left;">Post-Tax Balance<br><small>+ Yearly Interest</small></th>';
+            html += '<th style="padding:10px; border:1px solid #e5e7eb; text-align:left;">Taxable Balance<br><small>+ Yearly Interest</small></th>';
+            html += '<th style="padding:10px; border:1px solid #e5e7eb; text-align:left;">Total Balance</th>';
             html += '</tr></thead><tbody>';
 
             rows.forEach(row => {
@@ -494,11 +532,14 @@
 
                 html += `<tr>`;
                 html += `<td style="padding:10px; border:1px solid #e5e7eb;">${row.Age}</td>`;
-                html += `<td style="padding:10px; border:1px solid #e5e7eb;">${currency.format(row.Investment_Amount)}</td>`;
                 html += `<td style="padding:10px; border:1px solid #e5e7eb; color:#16a34a;">+${currency.format(row.Contributions)}</td>`;
-                html += `<td style="padding:10px; border:1px solid #e5e7eb; color:#2563eb;">+${currency.format(row.Interest_Earned)}</td>`;
+                html += `<td style="padding:10px; border:1px solid #e5e7eb;">${currency.format(row.Benefit_Payments)}</td>`;
+                html += `<td style="padding:10px; border:1px solid #e5e7eb; font-weight:bold;">${currency.format(row.Total_Income)}</td>`;
                 html += `<td style="padding:10px; border:1px solid #e5e7eb; color:#dc2626;">-${currency.format(row.Withdrawals)}<div style="margin-top:6px; line-height:1.6; font-size:12px;">${breakdownHtml || 'No withdrawals'}</div></td>`;
-                html += `<td style="padding:10px; border:1px solid #e5e7eb; font-weight:bold;">${currency.format(endingBalanceValue(row))}</td>`;
+                html += `<td style="padding:10px; border:1px solid #e5e7eb;">${currency.format(row.pre_tax_balance)}<div style="color:#2563eb; font-size:12px;">Interest: ${currency.format(row.pre_tax_interest)}</div></td>`;
+                html += `<td style="padding:10px; border:1px solid #e5e7eb;">${currency.format(row.post_tax_balance)}<div style="color:#2563eb; font-size:12px;">Interest: ${currency.format(row.post_tax_interest)}</div></td>`;
+                html += `<td style="padding:10px; border:1px solid #e5e7eb;">${currency.format(row.taxable_balance)}<div style="color:#2563eb; font-size:12px;">Interest: ${currency.format(row.taxable_interest)}</div></td>`;
+                html += `<td style="padding:10px; border:1px solid #e5e7eb; font-weight:bold;">${currency.format(row.total_value)}</td>`;
                 html += `</tr>`;
             });
             html += '</tbody></table>';

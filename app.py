@@ -76,7 +76,8 @@ def calculate_effective_tax(target_budget, filing_status='married'):
 class EnhancedRetirementCalculator:
     def __init__(self, age_current, age_retire, trad_start, roth_start, tax_start, 
                  investment_streams, target_budget, monthly_benefits, expected_return, 
-                 inflation_rate, effective_tax_rate):
+                 inflation_rate, effective_tax_rate, retirement_expected_return=None,
+                 return_change_age=None):
         self.age_current = age_current
         self.age_retire = age_retire
         self.life_expectancy = 90
@@ -90,6 +91,8 @@ class EnhancedRetirementCalculator:
         self.target_budget = target_budget
         self.monthly_benefits = monthly_benefits
         self.expected_return = expected_return
+        self.retirement_expected_return = expected_return if retirement_expected_return is None else retirement_expected_return
+        self.return_change_age = age_current if return_change_age is None else max(age_current, return_change_age)
         self.inflation_rate = inflation_rate
         self.effective_tax_rate = effective_tax_rate
         
@@ -99,6 +102,15 @@ class EnhancedRetirementCalculator:
 
     def generate_returns(self, num_simulations, num_years):
         return self.rng.normal(self.expected_return, self.portfolio_volatility, size=(num_simulations, num_years))
+
+    def return_rate_for_age(self, age):
+        return self.retirement_expected_return if age >= self.return_change_age else self.expected_return
+
+    def return_rates_for_ages(self, ages):
+        return np.array([self.return_rate_for_age(age) for age in ages])
+
+    def retirement_return_rates(self, retirement_years):
+        return self.return_rates_for_ages(self.age_retire + np.arange(retirement_years))
 
     def calculate(self):
         years_to_retire = self.age_retire - self.age_current
@@ -115,14 +127,16 @@ class EnhancedRetirementCalculator:
         # --- 1. Deterministic Path (For Table) ---
         combined_table = []
         cur_trad, cur_roth, cur_tax = self.trad_start, self.roth_start, self.tax_start
+        pre_return_rates = self.return_rates_for_ages(self.age_current + np.arange(years_to_retire))
 
         # Accumulation
         for year in range(years_to_retire):
             beginning = cur_trad + cur_roth + cur_tax
+            return_rate = pre_return_rates[year]
             
-            int_trad = (cur_trad + trad_contr) * self.expected_return
-            int_roth = (cur_roth + roth_contr) * self.expected_return
-            int_tax = (cur_tax + tax_contr) * self.expected_return
+            int_trad = (cur_trad + trad_contr) * return_rate
+            int_roth = (cur_roth + roth_contr) * return_rate
+            int_tax = (cur_tax + tax_contr) * return_rate
             
             cur_trad += trad_contr + int_trad
             cur_roth += roth_contr + int_roth
@@ -133,6 +147,8 @@ class EnhancedRetirementCalculator:
                 'Age': self.age_current + year,
                 'Investment_Amount': beginning,
                 'Contributions': total_contr,
+                'Benefit_Payments': 0.0,
+                'Total_Income': 0.0,
                 'Interest_Earned': int_trad + int_roth + int_tax,
                 'Withdrawals': 0.0,
                 'Ending_Balance': cur_trad + cur_roth + cur_tax,
@@ -168,6 +184,7 @@ class EnhancedRetirementCalculator:
         initial_withdrawal_rate = (initial_gross_withdrawal / future_total * 100) if future_total > 0 else float('inf')
 
         # Drawdown
+        retirement_return_rates = self.retirement_return_rates(retirement_years)
         for year in range(retirement_years):
             beginning = cur_trad + cur_roth + cur_tax
             annual_benefit = self.monthly_benefits * 12 * ((1 + self.inflation_rate) ** (year + years_to_retire))
@@ -192,9 +209,10 @@ class EnhancedRetirementCalculator:
             net_needed -= draw_trad * (1 - self.effective_tax_rate)
             gross_withdrawal += draw_trad
 
-            int_trad = cur_trad * self.expected_return
-            int_roth = cur_roth * self.expected_return
-            int_tax = cur_tax * self.expected_return
+            return_rate = retirement_return_rates[year]
+            int_trad = cur_trad * return_rate
+            int_roth = cur_roth * return_rate
+            int_tax = cur_tax * return_rate
 
             cur_roth += int_roth
             cur_tax += int_tax
@@ -206,6 +224,8 @@ class EnhancedRetirementCalculator:
                 'Age': self.age_retire + year,
                 'Investment_Amount': beginning,
                 'Contributions': 0.0,
+                'Benefit_Payments': annual_benefit,
+                'Total_Income': annual_benefit + gross_withdrawal,
                 'Interest_Earned': int_trad + int_roth + int_tax,
                 'Withdrawals': gross_withdrawal,
                 'withdrawal_breakdown': {
@@ -222,7 +242,10 @@ class EnhancedRetirementCalculator:
             })
 
         # --- 2. Monte Carlo Simulation ---
-        pre_returns = self.generate_returns(self.num_simulations, years_to_retire)
+        pre_returns = self.rng.normal(
+            pre_return_rates, self.portfolio_volatility,
+            size=(self.num_simulations, years_to_retire)
+        )
         
         port_trad = np.full((self.num_simulations, years_to_retire + 1), self.trad_start, dtype=np.float64)
         port_roth = np.full((self.num_simulations, years_to_retire + 1), self.roth_start, dtype=np.float64)
@@ -237,7 +260,10 @@ class EnhancedRetirementCalculator:
         pre_total = port_trad + port_roth + port_tax
         pre_retirement_median_path = np.median(pre_total, axis=0)
 
-        ret_returns = self.generate_returns(self.num_simulations, retirement_years)
+        ret_returns = self.rng.normal(
+            retirement_return_rates, self.portfolio_volatility,
+            size=(self.num_simulations, retirement_years)
+        )
         
         ret_trad = np.full((self.num_simulations, retirement_years + 1), 0.0, dtype=np.float64)
         ret_roth = np.full((self.num_simulations, retirement_years + 1), 0.0, dtype=np.float64)
@@ -327,6 +353,8 @@ class EnhancedRetirementCalculator:
             'combined_table': combined_table,
             'scenario_table': scenario_table,
             'initial_withdrawal_rate': initial_withdrawal_rate,
+            'retirement_return_rate': self.retirement_expected_return,
+            'return_change_age': self.return_change_age,
             'total_invested': total_invested_out_of_pocket
         }
 
@@ -510,6 +538,10 @@ def calculate_advanced():
         current_annual_income = float(data.get('current_annual_income', data.get('annual_income', target_budget_today)))
         current_effective_tax_rate = calculate_effective_tax(current_annual_income, filing_status)
         projected_retirement_tax_rate = calculate_effective_tax(target_budget_today * ((1 + float(data['inflation_rate']) / 100) ** max(0, int(data['age_retire']) - int(data['age_current']))), filing_status)
+        expected_return = float(data['expected_return']) / 100
+        keep_retirement_return = data.get('keep_retirement_return', True)
+        retirement_expected_return = expected_return if keep_retirement_return else float(data.get('retirement_expected_return', data['expected_return'])) / 100
+        return_change_age = max(int(data['age_current']), int(data.get('return_change_age', data['age_retire'])))
 
         calculator = EnhancedRetirementCalculator(
             age_current=int(data['age_current']),
@@ -520,9 +552,11 @@ def calculate_advanced():
             investment_streams=investment_streams,
             target_budget=target_budget_today,
             monthly_benefits=float(data['monthly_benefits']),
-            expected_return=float(data['expected_return']) / 100,
+            expected_return=expected_return,
             inflation_rate=float(data['inflation_rate']) / 100,
-            effective_tax_rate=current_effective_tax_rate
+            effective_tax_rate=current_effective_tax_rate,
+            retirement_expected_return=retirement_expected_return,
+            return_change_age=return_change_age
         )
 
         results = calculator.calculate()
@@ -536,6 +570,8 @@ def calculate_advanced():
                 'combined_table': results['combined_table'],
                 'scenario_table': results['scenario_table'],
                 'initial_withdrawal_rate': results['initial_withdrawal_rate'],
+                'retirement_return_rate': results['retirement_return_rate'] * 100,
+                'return_change_age': results['return_change_age'],
                 'current_effective_tax_rate': current_effective_tax_rate * 100,
                 'projected_retirement_tax_rate': projected_retirement_tax_rate * 100,
                 'effective_tax_rate': current_effective_tax_rate * 100,
